@@ -1,0 +1,1180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Book Catalog</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background-color: #f5f5f5;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            padding: 20px;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        
+        .filters {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 4px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        label {
+            font-size: 12px;
+            color: #666;
+            font-weight: 500;
+        }
+        
+        select, button {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        select {
+            min-width: 200px;
+        }
+        
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        
+        button:hover {
+            background: #0056b3;
+        }
+        
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .books-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        .books-table th {
+            background: #f8f9fa;
+            padding: 12px;
+            text-align: left;
+            font-weight: 600;
+            color: #333;
+            border-bottom: 2px solid #dee2e6;
+            position: sticky;
+            top: 0;
+        }
+        
+        .books-table td {
+            padding: 12px;
+            border-bottom: 1px solid #dee2e6;
+        }
+        
+        .books-table tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .owned-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        
+        .owned-badge.owned {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .owned-badge.not-owned {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .price {
+            font-weight: 600;
+            color: #28a745;
+        }
+        
+        .price.stale {
+            color: #dc3545;
+        }
+        
+        .action-menu {
+            position: relative;
+            display: inline-block;
+        }
+        
+        .action-menu-btn {
+            background: #007bff;
+            color: white;
+            padding: 6px 12px;
+            font-size: 12px;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        
+        .action-menu-btn:hover {
+            background: #0056b3;
+        }
+        
+        .action-menu-content {
+            display: none;
+            position: absolute;
+            right: 0;
+            background-color: white;
+            min-width: 160px;
+            box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+            z-index: 100;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 2px;
+        }
+        
+        .action-menu-content.show {
+            display: block;
+        }
+        
+        .action-menu-item {
+            color: #333;
+            padding: 10px 16px;
+            text-decoration: none;
+            display: block;
+            cursor: pointer;
+            font-size: 13px;
+        }
+        
+        .action-menu-item:hover {
+            background-color: #f1f1f1;
+        }
+        
+        .action-menu-item.ebay {
+            color: #ffc107;
+            font-weight: 500;
+        }
+        
+        .action-menu-item.owned {
+            color: #28a745;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+        
+        .modal-content {
+            background-color: white;
+            margin: 5% auto;
+            padding: 20px;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 900px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #dee2e6;
+        }
+        
+        .close {
+            color: #aaa;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        .close:hover {
+            color: #000;
+        }
+        
+        .ebay-results {
+            display: grid;
+            gap: 15px;
+        }
+        
+        .ebay-item {
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+            background: #f8f9fa;
+        }
+        
+        .ebay-item-title {
+            font-weight: 600;
+            margin-bottom: 8px;
+            color: #333;
+        }
+        
+        .ebay-item-details {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+            font-size: 14px;
+            color: #666;
+        }
+        
+        .ebay-item-link {
+            color: #007bff;
+            text-decoration: none;
+            font-weight: 500;
+        }
+        
+        .ebay-item-link:hover {
+            text-decoration: underline;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+        
+        .error {
+            color: #dc3545;
+            padding: 10px;
+            background: #f8d7da;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+        
+        .book-info {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: #e7f3ff;
+            border-radius: 4px;
+        }
+        
+        .update-form {
+            display: grid;
+            gap: 15px;
+        }
+        
+        .form-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        .form-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        
+        .form-group label {
+            font-weight: 600;
+            color: #333;
+            font-size: 13px;
+        }
+        
+        .form-group input,
+        .form-group select,
+        .form-group textarea {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            font-family: inherit;
+        }
+        
+        .form-group textarea {
+            min-height: 80px;
+            resize: vertical;
+        }
+        
+        .form-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: flex-end;
+            margin-top: 10px;
+        }
+        
+        .btn-primary {
+            background: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        
+        .btn-primary:hover {
+            background: #0056b3;
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+        
+        .btn-secondary:hover {
+            background: #545b62;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Book Catalog</h1>
+        
+        <div class="filters">
+            <div class="filter-group">
+                <label for="authorFilter">Author</label>
+                <select id="authorFilter">
+                    <option value="">All Authors</option>
+                </select>
+            </div>
+            
+            <div class="filter-group">
+                <label for="ownedFilter">Ownership</label>
+                <select id="ownedFilter">
+                    <option value="">All Books</option>
+                    <option value="true">Owned</option>
+                    <option value="false">Not Owned</option>
+                </select>
+            </div>
+            
+            <div class="filter-group" style="justify-content: flex-end;">
+                <label>&nbsp;</label>
+                <button onclick="loadBooks()">Apply Filters</button>
+            </div>
+        </div>
+        
+        <div class="filters" style="margin-top: 10px; padding: 10px;">
+            <div class="filter-group">
+                <label>Bulk eBay Estimates</label>
+                <div style="display: flex; gap: 10px;">
+                    <button onclick="runBulkEstimates('all')" style="background: #28a745;">All Books</button>
+                    <button onclick="runBulkEstimates('owned')" style="background: #17a2b8;">Owned Only</button>
+                    <button onclick="runBulkEstimates('not_owned')" style="background: #ffc107; color: #333;">Not Owned Only</button>
+                </div>
+            </div>
+        </div>
+        
+        <table class="books-table">
+            <thead>
+                <tr>
+                    <th>Author</th>
+                    <th>Title</th>
+                    <th>Publisher</th>
+                    <th>Publication Date</th>
+                    <th>Stock #</th>
+                    <th>Cover Price</th>
+                    <th>Grade</th>
+                    <th>Owned</th>
+                    <th>Market Value</th>
+                    <th>eBay Estimate</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody id="booksTableBody">
+                <tr>
+                    <td colspan="11" class="loading">Loading books...</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+    
+    <!-- eBay Search Modal -->
+    <div id="ebayModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>eBay Search Results</h2>
+                <span class="close" onclick="closeModal()">&times;</span>
+            </div>
+            <div id="ebayModalContent">
+                <div class="loading">Loading search results...</div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Update Book Modal -->
+    <div id="updateModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Update Book</h2>
+                <span class="close" onclick="closeUpdateModal()">&times;</span>
+            </div>
+            <div id="updateModalContent">
+                <div class="loading">Loading book information...</div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        let allBooks = [];
+        
+        // Load authors on page load
+        async function loadAuthors() {
+            try {
+                const response = await fetch('/api/authors');
+                const authors = await response.json();
+                const select = document.getElementById('authorFilter');
+                authors.forEach(author => {
+                    const option = document.createElement('option');
+                    option.value = author;
+                    option.textContent = author;
+                    select.appendChild(option);
+            });
+            } catch (error) {
+                console.error('Error loading authors:', error);
+            }
+        }
+        
+        // Load books
+        async function loadBooks() {
+            const authorFilter = document.getElementById('authorFilter').value;
+            const ownedFilter = document.getElementById('ownedFilter').value;
+            
+            const params = new URLSearchParams();
+            if (authorFilter) params.append('author', authorFilter);
+            if (ownedFilter) params.append('owned', ownedFilter);
+            
+            try {
+                const response = await fetch(`/api/books?${params.toString()}`);
+                allBooks = await response.json();
+                displayBooks(allBooks);
+            } catch (error) {
+                console.error('Error loading books:', error);
+                document.getElementById('booksTableBody').innerHTML = 
+                    '<tr><td colspan="10" class="error">Error loading books. Please try again.</td></tr>';
+            }
+        }
+        
+        // Format eBay estimate display
+        function formatEbayEstimate(book) {
+            if (book.ebay_estimate) {
+                let dateStr = '';
+                let stale = false;
+                if (book.price_date) {
+                    const dateParts = book.price_date.split('-');
+                    const priceDate = new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]));
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    priceDate.setHours(0, 0, 0, 0);
+                    const daysDiff = Math.floor((today - priceDate) / (1000 * 60 * 60 * 24));
+                    const dateStrFormatted = priceDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+                    dateStr = `<div style="font-size: 11px; font-weight: normal; color: #666; margin-top: 2px;">(as of ${dateStrFormatted})</div>`;
+                    if (daysDiff >= 90) {
+                        stale = true;
+                    }
+                }
+                return `<div${stale ? ' class="stale"' : ''}>$${book.ebay_estimate.toFixed(2)}</div>${dateStr}`;
+            } else if (book.price_source && book.price_source.toLowerCase().includes('ebay')) {
+                // Check price_notes to determine if it's "No results" or "No estimate"
+                let dateStr = '';
+                if (book.price_date) {
+                    const dateParts = book.price_date.split('-');
+                    const priceDate = new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]));
+                    const dateStrFormatted = priceDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+                    dateStr = `<div style="font-size: 11px; font-weight: normal; color: #666; margin-top: 2px;">(as of ${dateStrFormatted})</div>`;
+                }
+                let errorMsg = 'No estimate';
+                if (book.price_notes) {
+                    if (book.price_notes.includes('No results')) {
+                        errorMsg = 'No results';
+                    } else if (book.price_notes.includes('No estimate')) {
+                        errorMsg = 'No estimate';
+                    }
+                }
+                return `<div style="color: #999; font-style: italic;">${errorMsg}</div>${dateStr}`;
+            }
+            return '';
+        }
+        
+        // Display books in table
+        function displayBooks(books) {
+            const tbody = document.getElementById('booksTableBody');
+            
+            if (books.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="10" class="loading">No books found.</td></tr>';
+                return;
+            }
+            
+            tbody.innerHTML = books.map(book => {
+                // Format date for display and check if price is stale (90+ days old)
+                let marketValueDateStr = '';
+                let ebayEstimateDateStr = '';
+                let marketValueStale = false;
+                let ebayEstimateStale = false;
+                
+                if (book.price_date) {
+                    // Parse date as local date (not UTC) to avoid timezone issues
+                    const dateParts = book.price_date.split('-');
+                    const priceDate = new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, parseInt(dateParts[2]));
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0); // Set to midnight for accurate day comparison
+                    priceDate.setHours(0, 0, 0, 0);
+                    const daysDiff = Math.floor((today - priceDate) / (1000 * 60 * 60 * 24));
+                    
+                    // Format date string
+                    const dateStr = priceDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+                    
+                    // Check if stale and format date for each value
+                    if (book.market_value) {
+                        marketValueDateStr = `<div style="font-size: 11px; font-weight: normal; color: #666; margin-top: 2px;">(as of ${dateStr})</div>`;
+                        if (daysDiff >= 90) {
+                            marketValueStale = true;
+                        }
+                    }
+                    // Show date for eBay estimate if estimate exists OR if price_source indicates eBay search was performed
+                    if (book.ebay_estimate || (book.price_source && book.price_source.toLowerCase().includes('ebay'))) {
+                        ebayEstimateDateStr = `<div style="font-size: 11px; font-weight: normal; color: #666; margin-top: 2px;">(as of ${dateStr})</div>`;
+                        if (daysDiff >= 90) {
+                            ebayEstimateStale = true;
+                        }
+                    }
+                }
+                
+                // Format publication date for display (month and year, just year, or date range)
+                let publicationDateStr = '';
+                if (book.publication_date) {
+                    // If it contains a slash and looks like a range (e.g., "1940/41", "1951/52"), use as-is
+                    if (book.publication_date.includes('/') && /^\d{4}\/\d{1,2}$/.test(book.publication_date)) {
+                        publicationDateStr = book.publication_date;
+                    } else {
+                        try {
+                            const dateParts = book.publication_date.split('-');
+                            // If month is 01 and day is 01, it's likely just a year (unknown month)
+                            if (dateParts.length >= 3 && dateParts[1] === '01' && dateParts[2] === '01') {
+                                // Just year
+                                publicationDateStr = dateParts[0];
+                            } else if (dateParts.length >= 2 && dateParts[1] && dateParts[1] !== '01') {
+                                // Has specific month - format as "Aug 1951"
+                                const pubDate = new Date(parseInt(dateParts[0]), parseInt(dateParts[1]) - 1, 1);
+                                publicationDateStr = pubDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+                            } else {
+                                // Just year or other format - use as-is
+                                publicationDateStr = dateParts[0] || book.publication_date;
+                            }
+                        } catch (e) {
+                            // If parsing fails, use the string as-is (might be a range or other format)
+                            publicationDateStr = book.publication_date;
+                        }
+                    }
+                }
+                
+                return `
+                <tr>
+                    <td>${book.author}</td>
+                    <td>${book.title}</td>
+                    <td>${book.publisher || ''}</td>
+                    <td>${publicationDateStr}</td>
+                    <td>${book.stock_number || ''}</td>
+                    <td>${book.price || ''}</td>
+                    <td>${book.grade || ''}</td>
+                    <td>
+                        <span class="owned-badge ${book.owned ? 'owned' : 'not-owned'}">
+                            ${book.owned ? 'Owned' : 'Not Owned'}
+                        </span>
+                    </td>
+                    <td class="price ${marketValueStale ? 'stale' : ''}">${book.market_value ? '<div>$' + book.market_value.toFixed(2) + '</div>' + marketValueDateStr : ''}</td>
+                    <td class="price">${formatEbayEstimate(book)}</td>
+                    <td>
+                        <div class="action-menu">
+                            <button class="action-menu-btn" onclick="toggleActionMenu(${book.id}, event)">Actions ▼</button>
+                            <div class="action-menu-content" id="menu-${book.id}">
+                                <a class="action-menu-item ebay" onclick="searchEbay(${book.id}); closeActionMenu(${book.id})">eBay Search</a>
+                                <a class="action-menu-item ebay" onclick="viewSavedEbayResults(${book.id}); closeActionMenu(${book.id})">View Saved Results</a>
+                                <a class="action-menu-item owned" onclick="toggleOwned(${book.id}); closeActionMenu(${book.id})">Change to ${book.owned ? 'Not Owned' : 'Owned'}</a>
+                                <a class="action-menu-item" onclick="updateBook(${book.id}); closeActionMenu(${book.id})" style="color: #007bff;">Update</a>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+            `;
+            }).join('');
+        }
+        
+        // Action menu functions
+        function toggleActionMenu(bookId, event) {
+            event.stopPropagation();
+            const menu = document.getElementById(`menu-${bookId}`);
+            const allMenus = document.querySelectorAll('.action-menu-content');
+            
+            // Close all other menus
+            allMenus.forEach(m => {
+                if (m.id !== `menu-${bookId}`) {
+                    m.classList.remove('show');
+                }
+            });
+            
+            // Toggle this menu
+            menu.classList.toggle('show');
+        }
+        
+        function closeActionMenu(bookId) {
+            const menu = document.getElementById(`menu-${bookId}`);
+            menu.classList.remove('show');
+        }
+        
+        // Close menus when clicking outside
+        window.onclick = function(event) {
+            if (!event.target.matches('.action-menu-btn')) {
+                const menus = document.querySelectorAll('.action-menu-content');
+                menus.forEach(menu => menu.classList.remove('show'));
+            }
+            
+            // Also handle modal closing
+            const ebayModal = document.getElementById('ebayModal');
+            const updateModal = document.getElementById('updateModal');
+            if (event.target == ebayModal) {
+                closeModal();
+            }
+            if (event.target == updateModal) {
+                closeUpdateModal();
+            }
+        }
+        
+        // Toggle owned status
+        async function toggleOwned(bookId) {
+            try {
+                const response = await fetch(`/api/books/${bookId}/toggle_owned`, {
+                    method: 'POST'
+                });
+                
+                if (response.ok) {
+                    // Reload books to show updated status
+                    loadBooks();
+                } else {
+                    const error = await response.json();
+                    alert('Error: ' + (error.error || 'Failed to update ownership status'));
+                }
+            } catch (error) {
+                console.error('Error toggling owned status:', error);
+                alert('Error updating ownership status. Please try again.');
+            }
+        }
+        
+        // Update book
+        async function updateBook(bookId) {
+            const modal = document.getElementById('updateModal');
+            const content = document.getElementById('updateModalContent');
+            
+            modal.style.display = 'block';
+            content.innerHTML = '<div class="loading">Loading book information...</div>';
+            
+            try {
+                // Get current book data
+                const books = await fetch('/api/books').then(r => r.json());
+                const book = books.find(b => b.id === bookId);
+                
+                if (!book) {
+                    content.innerHTML = '<div class="error">Book not found.</div>';
+                    return;
+                }
+                
+                // Create update form
+                const formHtml = `
+                    <div class="book-info">
+                        <strong>${book.title}</strong><br>
+                        ${book.author} | ${book.publisher || ''} ${book.stock_number || ''}
+                    </div>
+                    <form class="update-form" onsubmit="saveBookUpdate(${bookId}, event)">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="updateTitle">Title</label>
+                                <input type="text" id="updateTitle" value="${book.title || ''}">
+                            </div>
+                            <div class="form-group">
+                                <label for="updateAuthor">Author</label>
+                                <input type="text" id="updateAuthor" value="${book.author || ''}">
+                            </div>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="updatePublisher">Publisher</label>
+                                <input type="text" id="updatePublisher" value="${book.publisher || ''}">
+                            </div>
+                            <div class="form-group">
+                                <label for="updateStockNumber">Stock Number</label>
+                                <input type="text" id="updateStockNumber" value="${book.stock_number || ''}">
+                            </div>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="updatePrice">Cover Price</label>
+                                <input type="text" id="updatePrice" placeholder="e.g., 40c, $1.25, 2'6" value="${book.price || ''}">
+                            </div>
+                            <div class="form-group">
+                                <label for="updateSeries">Series</label>
+                                <input type="text" id="updateSeries" value="${book.series || ''}">
+                            </div>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="updateGrade">Grade</label>
+                                <select id="updateGrade">
+                                    <option value="">-- Select Grade --</option>
+                                    <option value="Fine" ${book.grade === 'Fine' ? 'selected' : ''}>Fine</option>
+                                    <option value="Near Fine" ${book.grade === 'Near Fine' ? 'selected' : ''}>Near Fine</option>
+                                    <option value="Very Good" ${book.grade === 'Very Good' ? 'selected' : ''}>Very Good</option>
+                                    <option value="Good" ${book.grade === 'Good' ? 'selected' : ''}>Good</option>
+                                    <option value="Fair" ${book.grade === 'Fair' ? 'selected' : ''}>Fair</option>
+                                    <option value="Poor" ${book.grade === 'Poor' ? 'selected' : ''}>Poor</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="updatePrinting">Printing</label>
+                                <input type="text" id="updatePrinting" placeholder="e.g., First US ppb printing" value="${book.printing || ''}">
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="updateConditionNotes">Condition Notes</label>
+                            <textarea id="updateConditionNotes" placeholder="Describe the condition of the book...">${book.condition_notes || ''}</textarea>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="updateCoverArtist">Cover Artist</label>
+                                <input type="text" id="updateCoverArtist" value="${book.cover_artist || ''}">
+                            </div>
+                            <div class="form-group">
+                                <label for="updateCoverArtUrl">Cover Art URL</label>
+                                <input type="url" id="updateCoverArtUrl" value="${book.cover_art_url || ''}">
+                            </div>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="updatePublicationDate">Publication Date</label>
+                                <input type="date" id="updatePublicationDate" value="${book.publication_date || ''}">
+                            </div>
+                            <div class="form-group">
+                                <label for="updatePurchasePrice">Purchase Price (if known)</label>
+                                <input type="number" id="updatePurchasePrice" step="0.01" placeholder="0.00" value="${book.purchase_price || ''}">
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="updatePrintingNotes">Printing Notes</label>
+                            <textarea id="updatePrintingNotes" placeholder="Notes on how printing was determined...">${book.printing_notes || ''}</textarea>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="updateNotes">General Notes</label>
+                            <textarea id="updateNotes" placeholder="Any additional notes...">${book.notes || ''}</textarea>
+                        </div>
+                        
+                        <div class="form-actions">
+                            <button type="button" class="btn-secondary" onclick="closeUpdateModal()">Cancel</button>
+                            <button type="submit" class="btn-primary">Save Changes</button>
+                        </div>
+                    </form>
+                `;
+                
+                content.innerHTML = formHtml;
+                
+            } catch (error) {
+                console.error('Error loading book:', error);
+                content.innerHTML = `<div class="error">Error loading book: ${error.message}</div>`;
+            }
+        }
+        
+        // Save book update
+        async function saveBookUpdate(bookId, event) {
+            event.preventDefault();
+            
+            const updateData = {};
+            
+            // Basic fields
+            const title = document.getElementById('updateTitle').value;
+            const author = document.getElementById('updateAuthor').value;
+            const publisher = document.getElementById('updatePublisher').value;
+            const stockNumber = document.getElementById('updateStockNumber').value;
+            const price = document.getElementById('updatePrice').value;
+            const series = document.getElementById('updateSeries').value;
+            
+            if (title) updateData.title = title;
+            if (author) updateData.author = author;
+            if (publisher !== undefined) updateData.publisher = publisher;
+            if (stockNumber !== undefined) updateData.stock_number = stockNumber;
+            if (price !== undefined) updateData.price = price;
+            if (series !== undefined) updateData.series = series;
+            
+            // Condition fields
+            const grade = document.getElementById('updateGrade').value;
+            const conditionNotes = document.getElementById('updateConditionNotes').value;
+            if (grade) updateData.grade = grade;
+            if (conditionNotes !== undefined) updateData.condition_notes = conditionNotes;
+            
+            // Printing fields
+            const printing = document.getElementById('updatePrinting').value;
+            const printingNotes = document.getElementById('updatePrintingNotes').value;
+            if (printing !== undefined) updateData.printing = printing;
+            if (printingNotes !== undefined) updateData.printing_notes = printingNotes;
+            
+            // Cover fields
+            const coverArtist = document.getElementById('updateCoverArtist').value;
+            const coverArtUrl = document.getElementById('updateCoverArtUrl').value;
+            if (coverArtist !== undefined) updateData.cover_artist = coverArtist;
+            if (coverArtUrl !== undefined) updateData.cover_art_url = coverArtUrl;
+            
+            // Date and price fields
+            const publicationDate = document.getElementById('updatePublicationDate').value;
+            const purchasePrice = document.getElementById('updatePurchasePrice').value;
+            if (publicationDate) updateData.publication_date = publicationDate;
+            if (purchasePrice) updateData.purchase_price = parseFloat(purchasePrice);
+            
+            // Notes
+            const notes = document.getElementById('updateNotes').value;
+            if (notes !== undefined) updateData.notes = notes;
+            
+            try {
+                const response = await fetch(`/api/books/${bookId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(updateData)
+                });
+                
+                if (response.ok) {
+                    closeUpdateModal();
+                    loadBooks(); // Reload to show updated data
+                } else {
+                    const error = await response.json();
+                    alert('Error: ' + (error.error || 'Failed to update book'));
+                }
+            } catch (error) {
+                console.error('Error updating book:', error);
+                alert('Error updating book. Please try again.');
+            }
+        }
+        
+        // Close update modal
+        function closeUpdateModal() {
+            document.getElementById('updateModal').style.display = 'none';
+        }
+        
+        // Search eBay for a book
+        async function searchEbay(bookId) {
+            const modal = document.getElementById('ebayModal');
+            const content = document.getElementById('ebayModalContent');
+            
+            modal.style.display = 'block';
+            content.innerHTML = '<div class="loading">Searching eBay...</div>';
+            
+            try {
+                const response = await fetch(`/api/ebay_search/${bookId}`);
+                const data = await response.json();
+                
+                if (data.error) {
+                    content.innerHTML = `<div class="error">Error: ${data.error}</div>`;
+                    return;
+                }
+                
+                let html = `
+                    <div class="book-info">
+                        <strong>${data.book.title}</strong><br>
+                        ${data.book.author} | ${data.book.publisher || ''} ${data.book.stock_number || ''}<br>
+                        <strong>Your Copy Grade: ${data.book.grade}</strong>
+                    </div>
+                `;
+                
+                // Show estimate update info if it was updated
+                if (data.estimate_updated && data.estimate) {
+                    html += `
+                        <div style="background: #d4edda; padding: 10px; border-radius: 4px; margin-bottom: 15px; color: #155724;">
+                            <strong>✓ eBay Estimate Updated!</strong><br>
+                            ${data.estimate.market_value ? 'Market Value: $' + data.estimate.market_value.toFixed(2) + '<br>' : ''}
+                            eBay Estimate: $${data.estimate.ebay_estimate ? data.estimate.ebay_estimate.toFixed(2) : 'N/A'}<br>
+                            <small>Date: ${data.estimate.date}</small>
+                        </div>
+                    `;
+                } else if (data.estimate && data.estimate.error) {
+                    html += `<div class="error" style="margin-bottom: 15px;">${data.estimate.error}</div>`;
+                } else if (data.count < 3) {
+                    html += `<div style="background: #fff3cd; padding: 10px; border-radius: 4px; margin-bottom: 15px; color: #856404;">
+                        <small>Not enough listings (${data.count}) to calculate estimate. Need at least 3.</small>
+                    </div>`;
+                }
+                
+                html += '<div class="ebay-results">';
+                
+                if (data.results.length === 0) {
+                    html += '<div class="loading">No listings found on eBay.</div>';
+                } else {
+                    data.results.forEach(item => {
+                        html += `
+                            <div class="ebay-item">
+                                <div class="ebay-item-title">${item.title}</div>
+                                <div class="ebay-item-details">
+                                    <span><strong>Price:</strong> ${item.price}</span>
+                                    <span><strong>Shipping:</strong> ${item.shipping}</span>
+                                    <span><strong>Total:</strong> ${item.total}</span>
+                                    <span><strong>Condition:</strong> ${item.condition}</span>
+                                </div>
+                                ${item.url ? `<a href="${item.url}" target="_blank" class="ebay-item-link">View on eBay →</a>` : ''}
+                            </div>
+                        `;
+                    });
+                }
+                
+                html += '</div>';
+                content.innerHTML = html;
+                
+                // If estimate was updated, reload the books table to show new values
+                if (data.estimate_updated) {
+                    setTimeout(() => {
+                        loadBooks();
+                    }, 500);
+                }
+                
+            } catch (error) {
+                console.error('Error searching eBay:', error);
+                content.innerHTML = `<div class="error">Error searching eBay: ${error.message}</div>`;
+            }
+        }
+        
+        // View saved eBay search results
+        async function viewSavedEbayResults(bookId) {
+            const modal = document.getElementById('ebayModal');
+            const content = document.getElementById('ebayModalContent');
+            
+            modal.style.display = 'block';
+            content.innerHTML = '<div class="loading">Loading saved results...</div>';
+            
+            try {
+                const response = await fetch(`/api/ebay_search_results/${bookId}`);
+                const data = await response.json();
+                
+                if (data.error) {
+                    content.innerHTML = `<div class="error">Error: ${data.error}</div>`;
+                    return;
+                }
+                
+                let html = `
+                    <div class="book-info">
+                        <strong>${data.book.title}</strong><br>
+                        ${data.book.author} | ${data.book.publisher || ''} ${data.book.stock_number || ''}<br>
+                        <strong>Your Copy Grade: ${data.book.grade}</strong>
+                        ${data.search_date ? `<br><small style="color: #666;">Search Date: ${data.search_date}</small>` : ''}
+                    </div>
+                `;
+                
+                html += '<div class="ebay-results">';
+                
+                if (data.results.length === 0) {
+                    html += '<div class="loading">No saved listings found.</div>';
+                } else {
+                    data.results.forEach(item => {
+                        html += `
+                            <div class="ebay-item">
+                                <div class="ebay-item-title">${item.title}</div>
+                                <div class="ebay-item-details">
+                                    <span><strong>Price:</strong> ${item.price}</span>
+                                    <span><strong>Shipping:</strong> ${item.shipping}</span>
+                                    <span><strong>Total:</strong> ${item.total}</span>
+                                    <span><strong>Condition:</strong> ${item.condition}</span>
+                                </div>
+                                ${item.url ? `<a href="${item.url}" target="_blank" class="ebay-item-link">View on eBay →</a>` : ''}
+                            </div>
+                        `;
+                    });
+                }
+                
+                html += '</div>';
+                content.innerHTML = html;
+                
+            } catch (error) {
+                console.error('Error loading saved results:', error);
+                content.innerHTML = `<div class="error">Error loading saved results: ${error.message}</div>`;
+            }
+        }
+        
+        // Close modal
+        function closeModal() {
+            document.getElementById('ebayModal').style.display = 'none';
+        }
+        
+        // Run bulk eBay estimates
+        function runBulkEstimates(filterType) {
+            const filterNames = {
+                'all': 'All Books',
+                'owned': 'Owned Books',
+                'not_owned': 'Not Owned Books'
+            };
+            
+            if (!confirm(`This will run eBay estimates for ${filterNames[filterType]}. This may take a while. Continue?`)) {
+                return;
+            }
+            
+            // Show loading indicator and progress
+            const button = event.target;
+            const originalText = button.textContent;
+            button.disabled = true;
+            
+            // Create progress display
+            const progressDiv = document.createElement('div');
+            progressDiv.id = 'bulkEstimateProgress';
+            progressDiv.style.cssText = 'position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); z-index: 2000; min-width: 300px; text-align: center;';
+            progressDiv.innerHTML = `
+                <h3 style="margin-top: 0;">Running Bulk Estimates</h3>
+                <div id="progressMessage" style="margin: 15px 0; font-size: 16px; font-weight: 600; color: #007bff;">Starting...</div>
+                <div id="progressFraction" style="margin: 10px 0; font-size: 14px; color: #666;">0/0</div>
+                <button onclick="closeProgressModal()" style="margin-top: 15px; padding: 8px 16px; background: #6c757d; color: white; border: none; border-radius: 4px; cursor: pointer;">Close</button>
+            `;
+            document.body.appendChild(progressDiv);
+            
+            // Create overlay
+            const overlay = document.createElement('div');
+            overlay.id = 'bulkEstimateOverlay';
+            overlay.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1999;';
+            document.body.appendChild(overlay);
+            
+            // Use fetch with streaming to receive progress updates
+            fetch('/api/ebay_estimate_bulk', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ filter: filterType })
+            }).then(response => {
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                
+                function readChunk() {
+                    return reader.read().then(({ done, value }) => {
+                        if (done) {
+                            return;
+                        }
+                        
+                        buffer += decoder.decode(value, { stream: true });
+                        const lines = buffer.split('\n');
+                        buffer = lines.pop() || ''; // Keep incomplete line in buffer
+                        
+                        for (const line of lines) {
+                            if (line.startsWith('data: ')) {
+                                try {
+                                    const data = JSON.parse(line.substring(6));
+                                    
+                                    if (data.type === 'progress') {
+                                        const progressMessage = document.getElementById('progressMessage');
+                                        const progressFraction = document.getElementById('progressFraction');
+                                        if (progressMessage) {
+                                            progressMessage.textContent = data.message || `Processing ${data.current}/${data.total}`;
+                                        }
+                                        if (progressFraction) {
+                                            progressFraction.textContent = `${data.current}/${data.total} complete`;
+                                        }
+                                    } else if (data.type === 'complete') {
+                                        const results = data.results;
+                                        const message = `Bulk estimate complete!\n\n` +
+                                            `Total: ${results.total}\n` +
+                                            `Success: ${results.success}\n` +
+                                            `No results: ${results.no_results}\n` +
+                                            `No estimate: ${results.no_estimate}\n` +
+                                            `Errors: ${results.errors}`;
+                                        alert(message);
+                                        
+                                        // Reload books to show updated estimates
+                                        loadBooks();
+                                        
+                                        // Close progress modal
+                                        closeProgressModal();
+                                        
+                                        // Re-enable button
+                                        button.disabled = false;
+                                        button.textContent = originalText;
+                                    } else if (data.type === 'error') {
+                                        alert('Error: ' + data.error);
+                                        closeProgressModal();
+                                        button.disabled = false;
+                                        button.textContent = originalText;
+                                    }
+                                } catch (e) {
+                                    console.error('Error parsing SSE data:', e);
+                                }
+                            }
+                        }
+                        
+                        return readChunk();
+                    });
+                }
+                
+                return readChunk();
+            }).catch(error => {
+                console.error('Error running bulk estimates:', error);
+                alert('Error running bulk estimates. Please try again.');
+                closeProgressModal();
+                button.disabled = false;
+                button.textContent = originalText;
+            });
+        }
+        
+        function closeProgressModal() {
+            const progressDiv = document.getElementById('bulkEstimateProgress');
+            const overlay = document.getElementById('bulkEstimateOverlay');
+            if (progressDiv) progressDiv.remove();
+            if (overlay) overlay.remove();
+        }
+        
+        // Initialize
+        loadAuthors();
+        loadBooks();
+    </script>
+</body>
+</html>
+
