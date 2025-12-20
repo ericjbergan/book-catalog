@@ -374,16 +374,30 @@
         <h1>Book Catalog</h1>
         
         <div class="filters">
+            <div class="filter-group" style="flex: 0 0 300px;">
+                <label for="searchBox">Search</label>
+                <input type="text" id="searchBox" placeholder="Search titles, authors, series..." style="width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px;" oninput="applySearch()">
+            </div>
+            
+            <div class="filter-group">
+                <label for="typeFilter">Type</label>
+                <select id="typeFilter" onchange="loadBooks()">
+                    <option value="">All</option>
+                    <option value="book">Books</option>
+                    <option value="magazine">Magazines</option>
+                </select>
+            </div>
+            
             <div class="filter-group">
                 <label for="authorFilter">Author</label>
-                <select id="authorFilter">
+                <select id="authorFilter" onchange="loadBooks()">
                     <option value="">All Authors</option>
                 </select>
             </div>
             
             <div class="filter-group">
                 <label for="ownedFilter">Ownership</label>
-                <select id="ownedFilter">
+                <select id="ownedFilter" onchange="loadBooks()">
                     <option value="">All Books</option>
                     <option value="true">Owned</option>
                     <option value="false">Not Owned</option>
@@ -410,6 +424,7 @@
         <table class="books-table">
             <thead>
                 <tr>
+                    <th>Series</th>
                     <th>Author</th>
                     <th>Title</th>
                     <th>Publisher</th>
@@ -425,7 +440,7 @@
             </thead>
             <tbody id="booksTableBody">
                 <tr>
-                    <td colspan="11" class="loading">Loading books...</td>
+                    <td colspan="12" class="loading">Loading books...</td>
                 </tr>
             </tbody>
         </table>
@@ -477,10 +492,172 @@
             }
         }
         
+        // Fuzzy string matching function
+        function fuzzyMatch(str, pattern) {
+            if (!pattern) return true;
+            if (!str) return false;
+            
+            str = str.toLowerCase();
+            pattern = pattern.toLowerCase().trim();
+            const patternWords = pattern.split(/\s+/).filter(w => w.length > 0);
+            
+            // If pattern is a single word or short, require it to appear as a substring
+            if (pattern.length <= 4 || patternWords.length === 1) {
+                // For short patterns, require substring match
+                if (str.includes(pattern)) return true;
+                // Allow fuzzy match only if pattern is very short (2-3 chars)
+                if (pattern.length <= 3) {
+                    let patternIdx = 0;
+                    for (let i = 0; i < str.length && patternIdx < pattern.length; i++) {
+                        if (str[i] === pattern[patternIdx]) {
+                            patternIdx++;
+                        }
+                    }
+                    return patternIdx === pattern.length;
+                }
+                return false;
+            }
+            
+            // For multi-word patterns, require all words to appear (as substrings)
+            // This prevents "gray lensman" from matching "galactic" + "lensman" separately
+            const allWordsMatch = patternWords.every(word => {
+                // Each word must appear as a substring (not just characters scattered)
+                return str.includes(word);
+            });
+            
+            if (allWordsMatch) return true;
+            
+            // Fallback: exact substring match
+            if (str.includes(pattern)) return true;
+            
+            return false;
+        }
+        
+        // Calculate similarity score for sorting
+        function similarityScore(str, pattern) {
+            if (!str || !pattern) return 0;
+            str = str.toLowerCase();
+            pattern = pattern.toLowerCase();
+            
+            // Exact match gets highest score
+            if (str === pattern) return 100;
+            if (str.includes(pattern)) return 90;
+            
+            // Count matching characters
+            let matches = 0;
+            let patternIdx = 0;
+            for (let i = 0; i < str.length && patternIdx < pattern.length; i++) {
+                if (str[i] === pattern[patternIdx]) {
+                    matches++;
+                    patternIdx++;
+                }
+            }
+            
+            // Score based on percentage of pattern matched and position
+            const matchRatio = matches / pattern.length;
+            const positionBonus = str.indexOf(pattern[0]) === 0 ? 10 : 0;
+            return Math.round(matchRatio * 80 + positionBonus);
+        }
+        
+        // Determine if a book entry is a magazine
+        function isMagazine(book) {
+            // Check if printing is "First Appearance" (magazine entries)
+            if (book.printing === 'First Appearance') {
+                return true;
+            }
+            
+            // Check if publisher is a known magazine
+            const publisher = (book.publisher || '').toLowerCase();
+            const magazinePublishers = [
+                'magazine of fantasy and science fiction',
+                'astounding science fiction',
+                'isaac asimov\'s science fiction magazine',
+                'analog',
+                'infinity science fiction',
+                'super science stories',
+                'stellar',
+                'abbotempo',
+                'computers and automation',
+                'american way',
+                'special reports',
+                'the microverse'
+            ];
+            
+            return magazinePublishers.some(mag => publisher.includes(mag));
+        }
+        
+        // Apply search filter
+        function applySearch() {
+            const searchTerm = document.getElementById('searchBox').value.trim();
+            if (!searchTerm) {
+                loadBooks();
+                return;
+            }
+            
+            // Get all books and filter
+            const authorFilter = document.getElementById('authorFilter').value;
+            const ownedFilter = document.getElementById('ownedFilter').value;
+            const typeFilter = document.getElementById('typeFilter').value;
+            
+            const params = new URLSearchParams();
+            if (authorFilter) params.append('author', authorFilter);
+            if (ownedFilter) params.append('owned', ownedFilter);
+            
+            fetch(`/api/books?${params.toString()}`)
+                .then(response => response.json())
+                .then(books => {
+                    // Filter by type (book/magazine) first
+                    let filtered = books;
+                    if (typeFilter === 'book') {
+                        filtered = books.filter(book => !isMagazine(book));
+                    } else if (typeFilter === 'magazine') {
+                        filtered = books.filter(book => isMagazine(book));
+                    }
+                    
+                    // Then filter books using fuzzy matching
+                    // For each book, check if search term matches in any individual field
+                    // This prevents cross-field false matches
+                    filtered = filtered.filter(book => {
+                        const searchFields = [
+                            book.title || '',
+                            book.author || '',
+                            book.series || '',
+                            book.publisher || '',
+                            book.stock_number || '',
+                            book.cover_artist || ''
+                        ];
+                        
+                        // Check if search term matches in any individual field
+                        // This prevents "gray lensman" from matching "galactic" in title + "lensman" in series
+                        return searchFields.some(field => fuzzyMatch(field, searchTerm));
+                    });
+                    
+                    // Sort by relevance (similarity score)
+                    filtered.sort((a, b) => {
+                        const aScore = similarityScore(
+                            [a.title, a.author, a.series, a.publisher].join(' '),
+                            searchTerm
+                        );
+                        const bScore = similarityScore(
+                            [b.title, b.author, b.series, b.publisher].join(' '),
+                            searchTerm
+                        );
+                        return bScore - aScore; // Higher score first
+                    });
+                    
+                    displayBooks(filtered);
+                })
+                .catch(error => {
+                    console.error('Error searching books:', error);
+                });
+        }
+        
         // Load books
         async function loadBooks() {
             const authorFilter = document.getElementById('authorFilter').value;
             const ownedFilter = document.getElementById('ownedFilter').value;
+            const typeFilter = document.getElementById('typeFilter').value;
+            const searchTerm = document.getElementById('searchBox').value.trim();
             
             const params = new URLSearchParams();
             if (authorFilter) params.append('author', authorFilter);
@@ -489,11 +666,52 @@
             try {
                 const response = await fetch(`/api/books?${params.toString()}`);
                 allBooks = await response.json();
-                displayBooks(allBooks);
+                
+                // Filter by type (book/magazine) first
+                let filtered = allBooks;
+                if (typeFilter === 'book') {
+                    filtered = allBooks.filter(book => !isMagazine(book));
+                } else if (typeFilter === 'magazine') {
+                    filtered = allBooks.filter(book => isMagazine(book));
+                }
+                
+                // Apply search filter if there's a search term
+                if (searchTerm) {
+                    filtered = filtered.filter(book => {
+                        const searchFields = [
+                            book.title || '',
+                            book.author || '',
+                            book.series || '',
+                            book.publisher || '',
+                            book.stock_number || '',
+                            book.cover_artist || ''
+                        ];
+                        
+                        // Check if search term matches in any individual field
+                        return searchFields.some(field => fuzzyMatch(field, searchTerm));
+                    });
+                    
+                    // Sort by relevance
+                    filtered.sort((a, b) => {
+                        const aScore = similarityScore(
+                            [a.title, a.author, a.series, a.publisher].join(' '),
+                            searchTerm
+                        );
+                        const bScore = similarityScore(
+                            [b.title, b.author, b.series, b.publisher].join(' '),
+                            searchTerm
+                        );
+                        return bScore - aScore;
+                    });
+                    
+                    displayBooks(filtered);
+                } else {
+                    displayBooks(filtered);
+                }
             } catch (error) {
                 console.error('Error loading books:', error);
                 document.getElementById('booksTableBody').innerHTML = 
-                    '<tr><td colspan="10" class="error">Error loading books. Please try again.</td></tr>';
+                    '<tr><td colspan="12" class="error">Error loading books. Please try again.</td></tr>';
             }
         }
         
@@ -533,7 +751,12 @@
                         errorMsg = 'No estimate';
                     }
                 }
-                return `<div style="color: #999; font-style: italic;">${errorMsg}</div>${dateStr}`;
+                // Use green color for "No estimate" (same as estimate value) to indicate results were found
+                // Keep gray italic for "No results" to indicate no listings found
+                const style = errorMsg === 'No estimate' 
+                    ? 'color: #28a745; font-weight: 600;' 
+                    : 'color: #999; font-style: italic;';
+                return `<div style="${style}">${errorMsg}</div>${dateStr}`;
             }
             return '';
         }
@@ -543,9 +766,80 @@
             const tbody = document.getElementById('booksTableBody');
             
             if (books.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="10" class="loading">No books found.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="12" class="loading">No books found.</td></tr>';
                 return;
             }
+            
+            // Sort by series (default sort)
+            // Extract series name and number for proper numeric sorting
+            function getSeriesSortKey(series) {
+                if (!series) return ['zzz', 9999, 9999]; // Put items without series at end
+                const match = series.match(/^(.+?)\s+(\d+)(?:\/(\d+))?/);
+                if (match) {
+                    const seriesName = match[1];
+                    const bookNum = parseInt(match[2]);
+                    const partNum = match[3] ? parseInt(match[3]) : 0;
+                    return [seriesName, bookNum, partNum];
+                }
+                return [series, 0, 0];
+            }
+            
+            // Parse publication date for sorting
+            function getPublicationDateSortValue(pubDate) {
+                if (!pubDate) return '9999-99-99'; // Put items without date at end
+                
+                // If it's a date string like "1965", "Dec 1965", "1965-01-01", etc.
+                if (typeof pubDate === 'string') {
+                    // Try to extract year
+                    const yearMatch = pubDate.match(/\b(19|20)\d{2}\b/);
+                    if (yearMatch) {
+                        const year = yearMatch[0];
+                        // Try to extract month if available
+                        const monthNames = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+                        let month = '99';
+                        for (let i = 0; i < monthNames.length; i++) {
+                            if (pubDate.toLowerCase().includes(monthNames[i])) {
+                                month = String(i + 1).padStart(2, '0');
+                                break;
+                            }
+                        }
+                        return `${year}-${month}-99`;
+                    }
+                }
+                
+                // If it's already a date string in YYYY-MM-DD format
+                if (pubDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                    return pubDate;
+                }
+                
+                return '9999-99-99';
+            }
+            
+            books.sort((a, b) => {
+                const keyA = getSeriesSortKey(a.series);
+                const keyB = getSeriesSortKey(b.series);
+                
+                // Compare series name
+                if (keyA[0] !== keyB[0]) {
+                    return keyA[0].localeCompare(keyB[0]);
+                }
+                // Compare book number
+                if (keyA[1] !== keyB[1]) {
+                    return keyA[1] - keyB[1];
+                }
+                // Compare part number (for serialized works)
+                if (keyA[2] !== keyB[2]) {
+                    return keyA[2] - keyB[2];
+                }
+                // If same series and number, sort by publication date
+                const dateA = getPublicationDateSortValue(a.publication_date);
+                const dateB = getPublicationDateSortValue(b.publication_date);
+                if (dateA !== dateB) {
+                    return dateA.localeCompare(dateB);
+                }
+                // If same date, sort by title
+                return (a.title || '').localeCompare(b.title || '');
+            });
             
             tbody.innerHTML = books.map(book => {
                 // Format date for display and check if price is stale (90+ days old)
@@ -612,6 +906,7 @@
                 
                 return `
                 <tr>
+                    <td>${book.series || ''}</td>
                     <td>${book.author}</td>
                     <td>${book.title}</td>
                     <td>${book.publisher || ''}</td>
@@ -690,7 +985,7 @@
                 });
                 
                 if (response.ok) {
-                    // Reload books to show updated status
+                    // Reload books to show updated status (keep current filters/search)
                     loadBooks();
                 } else {
                     const error = await response.json();
@@ -806,6 +1101,15 @@
                             </div>
                         </div>
                         
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="updateOwned" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                                    <input type="checkbox" id="updateOwned" ${book.owned ? 'checked' : ''} style="width: auto; margin: 0;">
+                                    <span>Owned</span>
+                                </label>
+                            </div>
+                        </div>
+                        
                         <div class="form-group">
                             <label for="updatePrintingNotes">Printing Notes</label>
                             <textarea id="updatePrintingNotes" placeholder="Notes on how printing was determined...">${book.printing_notes || ''}</textarea>
@@ -876,6 +1180,10 @@
             if (publicationDate) updateData.publication_date = publicationDate;
             if (purchasePrice) updateData.purchase_price = parseFloat(purchasePrice);
             
+            // Owned status
+            const owned = document.getElementById('updateOwned').checked;
+            updateData.owned = owned;
+            
             // Notes
             const notes = document.getElementById('updateNotes').value;
             if (notes !== undefined) updateData.notes = notes;
@@ -891,6 +1199,8 @@
                 
                 if (response.ok) {
                     closeUpdateModal();
+                    // Clear search to show all books with update
+                    document.getElementById('searchBox').value = '';
                     loadBooks(); // Reload to show updated data
                 } else {
                     const error = await response.json();
@@ -1129,15 +1439,15 @@
                                             `Errors: ${results.errors}`;
                                         alert(message);
                                         
-                                        // Reload books to show updated estimates
-                                        loadBooks();
-                                        
                                         // Close progress modal
                                         closeProgressModal();
                                         
                                         // Re-enable button
                                         button.disabled = false;
                                         button.textContent = originalText;
+                                        
+                                        // Refresh the page to show all updated data
+                                        window.location.reload();
                                     } else if (data.type === 'error') {
                                         alert('Error: ' + data.error);
                                         closeProgressModal();

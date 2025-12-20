@@ -114,6 +114,7 @@ The eBay estimate is calculated from Buy It Now listings on eBay, with the follo
 - **SQLite Database** - Local file-based storage, no server required
 - **CSV Import** - Bulk import from spreadsheet data
 - **Search Capabilities** - Query by author, title, publisher, stock number, ownership status
+- **Fuzzy Search** - Web UI includes real-time fuzzy search with typo tolerance across multiple fields
 - **Python API** - Programmatic access for scripting and automation
 - **Data Verification** - Online verification of bibliographic information when entering books
 - **eBay API Integration** - Automated price fetching from eBay listings
@@ -146,16 +147,21 @@ python run_ui.py
 Then open your browser and go to: http://localhost:5000
 
 **Features:**
-- **Book Listing** - View all books in a sortable table
+- **Book Listing** - View all books in a sortable table, automatically sorted by series
+- **Search** - Real-time fuzzy search across title, author, series, publisher, stock number, and cover artist. Handles typos and partial matches
 - **Filtering** - Filter by author and ownership status (owned/not owned)
+- **Series Organization** - Books are organized by series with numbered entries (e.g., "Tarzan 1", "Lensman 3/2" for serialized parts)
 - **eBay Search** - Click "eBay Search" button on any book to search eBay for current listings
 - **Direct Links** - eBay search results include direct links to listings
+- **Auto-refresh** - Table automatically updates when books are modified through the UI
 
 The UI displays:
-- Book ID, Author, Title, Publisher, Stock Number
-- Grade and ownership status
+- Series (with book/part numbers for organization)
+- Author, Title, Publisher, Stock Number
+- Publication Date, Cover Price, Grade
+- Ownership status
 - Market Value and eBay Estimate (if available)
-- Quick access to eBay search for each book
+- Quick access to eBay search and book editing for each book
 
 ## eBay API Integration
 
@@ -393,6 +399,7 @@ The database uses SQLite with a single `books` table containing all catalog info
 **Key Fields:**
 - `id` - Primary key (auto-increment)
 - `author`, `title` - Required fields
+- `series` - Series name with book/part numbers (e.g., "Tarzan 1", "Lensman 3/2" for serialized parts)
 - `publisher`, `stock_number`, `isbn` - Publisher identification
 - `price`, `publisher_address`, `number_line` - Printing indicators
 - `copyright_date`, `copyright_text` - Copyright information
@@ -400,10 +407,15 @@ The database uses SQLite with a single `books` table containing all catalog info
 - `printing`, `printing_number`, `printing_notes`, `publication_date` - Printing determination
 - `grade`, `condition_notes` - Condition information
 - `owned` - Boolean flag (True = owned, False = not owned)
-- `market_value`, `estimated_value`, `purchase_price`, `price_date`, `price_source`, `price_notes` - Price tracking
+- `market_value`, `ebay_estimate`, `purchase_price`, `price_date`, `price_source`, `price_notes` - Price tracking
 - `notes`, `spine_info`, `back_cover_info` - Additional information
 
-All text fields support full descriptions and notes. The database is indexed on commonly searched fields (author, title, publisher, stock_number, owned).
+**Series Numbering:**
+- Regular books: Format "Series X" (e.g., "Tarzan 1", "Lensman 3")
+- Serialized magazine issues: Format "Series X/Y" where X is book number and Y is part number (e.g., "Lensman 1/1", "Skylark 3/7")
+- Books are automatically sorted by series in the UI
+
+All text fields support full descriptions and notes. The database is indexed on commonly searched fields (author, title, publisher, stock_number, owned, series).
 
 ## Project Structure
 
@@ -422,9 +434,31 @@ book-catalog/
 └── book_catalog.db          # SQLite database (created after initialization)
 ```
 
+## Search Functionality
+
+The web UI includes a powerful search feature with fuzzy matching capabilities:
+
+**Search Box:**
+- Located at the top of the filters section
+- Searches across multiple fields: title, author, series, publisher, stock number, and cover artist
+- Real-time results as you type
+
+**Fuzzy Matching:**
+- Handles typos and partial matches (e.g., "triplanteray" will match "Triplanetary")
+- For multi-word searches, all words must appear in the same field (prevents false matches across different fields)
+- Results are sorted by relevance (exact matches first, then fuzzy matches)
+- Works in combination with author and ownership filters
+
+**Examples:**
+- Searching "gray lensman" will find "Gray Lensman" and related magazine issues
+- Searching "tarzan" will find all Tarzan books
+- Searching "frazetta" will find all books with Frazetta covers
+
 ## Paperback Grading Standards
 
 Accurate grading is essential for collectors to determine a book's value and condition. The following standardized grading scale is widely accepted in the book collecting community, with specific attention to paperback characteristics:
+
+**Note:** When cataloging books, condition notes should describe actual defects and issues. Statements about the absence of defects (e.g., "no other marks or creases") are useful for determining grade but should not be included in the condition notes field.
 
 ### Grade Definitions
 
@@ -531,6 +565,22 @@ Accurate grading is essential for collectors to determine a book's value and con
 4. **Consider age** - Older books may naturally show more wear; grade relative to age
 5. **Check completeness** - Verify all pages and elements are present
 6. **Examine thoroughly** - Check cover, spine, pages, and binding carefully
+
+## Essay Collections Status
+
+The catalog includes Isaac Asimov's essay collections and their original magazine appearances. The following collections still need complete essay lists with publication dates to add their magazine entries:
+
+**Collections Needing Essay Lists:**
+- The Stars in Their Courses (1971)
+- Of Matters Great and Small (1975)
+- The Sun Shines Bright (1981)
+- The Subatomic Monster (1985)
+- Far as Human Eye Could See (1987)
+- Out of the Everywhere (1990)
+- The Secret of the Universe (1991)
+- Of Time and Space and Other Things (1965)
+
+**Note:** Collection books are only added to the catalog if they have a confirmed first US paperback edition. Magazine entries are added regardless of whether the collection was published in paperback or only in hardcover.
 
 ## Use Cases
 

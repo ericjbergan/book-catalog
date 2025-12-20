@@ -48,6 +48,7 @@ def api_books():
                 'ebay_estimate': float(book.ebay_estimate) if book.ebay_estimate else None,
                 'price_date': str(book.price_date) if book.price_date else None,
                 'price_source': book.price_source or '',
+                'price_notes': book.price_notes or '',
                 'publication_date': str(book.publication_date) if book.publication_date else None,  # Can be date string or range like "1940/41"
                 'cover_artist': book.cover_artist or '',
                 'notes': book.notes or '',
@@ -81,11 +82,20 @@ def api_books():
 
 @app.route('/api/authors')
 def api_authors():
-    """API endpoint to get list of all authors."""
+    """API endpoint to get list of all authors, sorted by last name."""
     try:
         books = list_all_books()
-        authors = sorted(set(book.author for book in books if book.author))
-        return jsonify(authors)
+        authors = set(book.author for book in books if book.author)
+        
+        # Sort by last name (or full name if no space)
+        def get_last_name(author):
+            parts = author.strip().split()
+            if len(parts) > 1:
+                return parts[-1].lower()  # Last name
+            return author.lower()  # Single name, use as-is
+        
+        authors_sorted = sorted(authors, key=get_last_name)
+        return jsonify(authors_sorted)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -134,7 +144,7 @@ def api_update_book(book_id):
             'market_value', 'ebay_estimate', 'price', 'printing', 
             'printing_notes', 'cover_artist', 'cover_art_url', 
             'publication_date', 'series', 'stock_number', 'publisher',
-            'title', 'author', 'isbn', 'publisher_address', 'number_line'
+            'title', 'author', 'isbn', 'publisher_address', 'number_line', 'owned'
         ]
         
         for field in allowed_fields:
@@ -240,12 +250,19 @@ def api_ebay_search(book_id):
         # Format results for display
         formatted_results = []
         for r in results:
+            format_type = r.get('format', '')
+            title = r.get('title', '')
+            # Add format indicator to title if it's hardcover (to help user identify)
+            if format_type == 'Hardcover':
+                title = f"[HC] {title}"
+            
             formatted_results.append({
-                'title': r.get('title', ''),
+                'title': title,
                 'price': f"${r.get('price', 0):.2f}" if r.get('price') else 'N/A',
                 'shipping': f"${float(r.get('shipping_cost', 0)):.2f}" if r.get('shipping_cost') else 'Free',
                 'condition': r.get('condition', 'Unknown'),
                 'url': r.get('url', ''),
+                'format': format_type,
                 'total': f"${(float(r.get('price', 0)) + float(r.get('shipping_cost', 0))):.2f}" if r.get('price') and r.get('shipping_cost') else r.get('price', 'N/A')
             })
         
@@ -414,6 +431,57 @@ def api_ebay_estimate_bulk():
                         else:
                             publication_year = book.publication_date.year
                     
+                    # First, do a search to get results (so we can save them even if not enough for estimate)
+                    search_results = api.search_books(
+                        title=book.title,
+                        author=None,  # Don't include in search to widen results
+                        publisher=book.publisher,
+                        stock_number=None,  # Don't include in search to widen results
+                        limit=50
+                    )
+                    
+                    # Filter results to match the exact edition if we have publisher/stock_number
+                    if api.openai_client and (book.publisher or book.stock_number):
+                        buy_it_now_results = [r for r in search_results if r.get("is_buy_it_now", False)]
+                        if buy_it_now_results:
+                            filtered_results = api._filter_listings_with_chatgpt(
+                                buy_it_now_results,
+                                book.title,
+                                book.author,
+                                book.publisher,
+                                book.stock_number,
+                                target_publication_year=publication_year,
+                                require_condition_info=False
+                            )
+                            other_results = [r for r in search_results if not r.get("is_buy_it_now", False)]
+                            search_results = filtered_results + other_results
+                    else:
+                        if book.stock_number:
+                            search_results = api.prioritize_results(search_results, book.author, book.stock_number)
+                    
+                    # Format results for saving
+                    formatted_results = []
+                    for r in search_results:
+                        formatted_results.append({
+                            'title': r.get('title', ''),
+                            'price': f"${r.get('price', 0):.2f}" if r.get('price') else 'N/A',
+                            'shipping': f"${float(r.get('shipping_cost', 0)):.2f}" if r.get('shipping_cost') else 'Free',
+                            'condition': r.get('condition', 'Unknown'),
+                            'url': r.get('url', ''),
+                            'total': f"${(float(r.get('price', 0)) + float(r.get('shipping_cost', 0))):.2f}" if r.get('price') and r.get('shipping_cost') else r.get('price', 'N/A')
+                        })
+                    
+                    # Save search results to database (even if not enough for estimate)
+                    update_book(
+                        book.id,
+                        ebay_search_results=json.dumps(formatted_results),
+                        ebay_search_date=date.today()
+                    )
+                    
+                    # Determine error type based on OUR search results (not get_price_estimate's internal search)
+                    # Filter to Buy It Now listings for counting
+                    buy_it_now_count = len([r for r in search_results if r.get("is_buy_it_now", False) and r.get("price") is not None])
+                    
                     # Get price estimate
                     price_result = api.get_price_estimate(
                         title=book.title,
@@ -430,15 +498,26 @@ def api_ebay_estimate_bulk():
                     if price_result:
                         # Check if result is an error dict
                         if isinstance(price_result, dict) and "error" in price_result:
-                            error_type = price_result.get("error_type", "unknown")
-                            error_msg = price_result.get("error", "Unknown error")
+                            # Use OUR search results to determine error type, not get_price_estimate's
+                            if len(search_results) == 0:
+                                error_msg = "No results"
+                                error_type = "no_results"
+                            elif buy_it_now_count < 3:
+                                error_msg = "No estimate"
+                                error_type = "insufficient_results"
+                            else:
+                                # Fallback to get_price_estimate's error message
+                                error_type = price_result.get("error_type", "unknown")
+                                error_msg = price_result.get("error", "Unknown error")
                             
+                            # Update book with error, but preserve search results we already saved
                             update_book(
                                 book.id,
                                 ebay_estimate=None,
                                 price_date=date.today(),
                                 price_source='eBay search',
                                 price_notes=f'eBay search performed: {error_msg}'
+                                # Note: ebay_search_results already saved above, so we don't overwrite it
                             )
                             
                             if error_type == "no_results":
@@ -472,12 +551,39 @@ def api_ebay_estimate_bulk():
                                 'estimate': ebay_estimate
                             })
                     else:
-                        results['errors'] += 1
+                        # No price_result returned (shouldn't happen, but handle it)
+                        # Determine error type based on OUR search results
+                        if len(search_results) == 0:
+                            error_msg = "No results"
+                            error_type = "no_results"
+                        elif buy_it_now_count < 3:
+                            error_msg = "No estimate"
+                            error_type = "insufficient_results"
+                        else:
+                            # Shouldn't happen, but default to "No estimate"
+                            error_msg = "No estimate"
+                            error_type = "insufficient_results"
+                        
+                        # Update book with error, but preserve search results we already saved
+                        update_book(
+                            book.id,
+                            ebay_estimate=None,
+                            price_date=date.today(),
+                            price_source='eBay search',
+                            price_notes=f'eBay search performed: {error_msg}'
+                            # Note: ebay_search_results already saved above, so we don't overwrite it
+                        )
+                        
+                        if error_type == "no_results":
+                            results['no_results'] += 1
+                        else:
+                            results['no_estimate'] += 1
+                        
                         results['details'].append({
                             'book_id': book.id,
                             'title': book.title,
-                            'status': 'error',
-                            'error': 'Unknown error'
+                            'status': error_msg,
+                            'error_type': error_type
                         })
                     
                 except Exception as e:

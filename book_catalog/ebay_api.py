@@ -240,6 +240,24 @@ class eBayAPI:
                 # Try to get shortDescription if available (some items have it in search results)
                 short_description = item.get("shortDescription", "")
                 
+                # Check if this is a paperback or hardcover
+                # Combine title and description to check format
+                title_text = item.get("title", "").lower()
+                desc_text = short_description.lower() if short_description else ""
+                combined_text = f"{title_text} {desc_text}"
+                
+                # Check for hardcover indicators (exclude these)
+                hardcover_indicators = ["hardcover", "hard cover", "hc", "h/c", "h.c.", "cloth", "dj", "dust jacket", "dustjacket"]
+                is_hardcover = any(indicator in combined_text for indicator in hardcover_indicators)
+                
+                # Check for paperback indicators (prefer these)
+                paperback_indicators = ["paperback", "pb", "p/b", "mass market", "mm pb", "trade pb"]
+                is_paperback = any(indicator in combined_text for indicator in paperback_indicators)
+                
+                # If it's clearly hardcover and not paperback, skip it
+                if is_hardcover and not is_paperback:
+                    continue
+                
                 # Try to extract publication year from item specifics or other fields
                 # eBay Browse API may have this in localizedAspects (array) or aspects (dict)
                 publication_year = None
@@ -286,6 +304,13 @@ class eBayAPI:
                                 except (ValueError, TypeError):
                                     pass
                 
+                # Determine format
+                format_type = "Unknown"
+                if is_paperback:
+                    format_type = "Paperback"
+                elif is_hardcover:
+                    format_type = "Hardcover"
+                
                 results.append({
                     "title": item.get("title", ""),
                     "price": price_value,
@@ -299,8 +324,19 @@ class eBayAPI:
                     "seller": item.get("seller", {}).get("username", ""),
                     "shipping_cost": shipping_value,
                     "description": short_description,  # May be empty, will fetch full description if needed
-                    "publication_year": publication_year  # May be None if not available
+                    "publication_year": publication_year,  # May be None if not available
+                    "format": format_type,  # Paperback, Hardcover, or Unknown
+                    "is_paperback": is_paperback,
+                    "is_hardcover": is_hardcover
                 })
+            
+            # Sort results: paperbacks first, then others, then hardcovers last
+            results.sort(key=lambda x: (
+                0 if x.get("is_paperback") else (1 if not x.get("is_hardcover") else 2),
+                x.get("price") or float('inf')
+            ))
+            
+            return results
             
             return results
         except requests.exceptions.RequestException as e:
