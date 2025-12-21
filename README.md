@@ -571,17 +571,17 @@ Accurate grading is essential for collectors to determine a book's value and con
 The catalog includes Isaac Asimov's essay collections and their original magazine appearances. The following collections still need complete essay lists with publication dates to add their magazine entries:
 
 **Collections Needing Essay Lists:**
-- Asimov on Science Fiction (1981) - 55 essays from Isaac Asimov's Science Fiction Magazine (1977-1981)
-- The Stars in Their Courses (1971)
-- Of Matters Great and Small (1975)
-- The Sun Shines Bright (1981)
-- The Subatomic Monster (1985)
-- Far as Human Eye Could See (1987)
-- Out of the Everywhere (1990)
-- The Secret of the Universe (1991)
-- Of Time and Space and Other Things (1965)
+- Asimov on Science Fiction (1981) - 55 essays from Isaac Asimov's Science Fiction Magazine (1977-1981) - needs publication dates for each essay
 
 **Note:** Collection books are only added to the catalog if they have a confirmed first US paperback edition. Magazine entries are added regardless of whether the collection was published in paperback or only in hardcover.
+
+**Collections Needing Research Before Adding:**
+
+The following series need research to confirm Isaac Asimov's authorship before being added to the catalog:
+
+- **Isaac Asimov's Library of the Universe** (1988-1990) - Series of 22 educational astronomy/space science books for young readers, originally published by Gareth Stevens Publishing. Paperback editions available from Dell Yearling Non-fiction ($4.95-$4.99). Authorship needs verification - may have been co-authored or written by others under Asimov's name.
+
+- **Isaac Asimov's New Library of the Universe / 21st Century Library of the Universe** (1995-1997) - Updated/revised series, some volumes co-authored with Richard Hantula. Authorship needs verification before adding to catalog.
 
 ## Use Cases
 
