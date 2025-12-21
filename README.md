@@ -571,6 +571,7 @@ Accurate grading is essential for collectors to determine a book's value and con
 The catalog includes Isaac Asimov's essay collections and their original magazine appearances. The following collections still need complete essay lists with publication dates to add their magazine entries:
 
 **Collections Needing Essay Lists:**
+- Asimov on Science Fiction (1981) - 55 essays from Isaac Asimov's Science Fiction Magazine (1977-1981)
 - The Stars in Their Courses (1971)
 - Of Matters Great and Small (1975)
 - The Sun Shines Bright (1981)
