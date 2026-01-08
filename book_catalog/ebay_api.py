@@ -240,22 +240,63 @@ class eBayAPI:
                 # Try to get shortDescription if available (some items have it in search results)
                 short_description = item.get("shortDescription", "")
                 
+                # Check eBay's format/binding information from aspects first (most reliable)
+                format_from_aspects = None
+                localized_aspects = item.get("localizedAspects", [])
+                if isinstance(localized_aspects, list):
+                    for aspect in localized_aspects:
+                        if isinstance(aspect, dict):
+                            name = aspect.get("localizedName", "") or aspect.get("name", "")
+                            value = aspect.get("value", "").lower() if aspect.get("value") else ""
+                            # Check for format/binding fields
+                            if any(keyword in name.lower() for keyword in ["format", "binding", "book format", "book type"]):
+                                format_from_aspects = value
+                                break
+                
+                # Also check aspects dict
+                if not format_from_aspects:
+                    item_aspects = item.get("aspects", {}) or item.get("itemAspects", {})
+                    if isinstance(item_aspects, dict):
+                        for key in ["Format", "format", "Binding", "binding", "Book Format", "Book Type"]:
+                            if key in item_aspects:
+                                format_value = item_aspects[key]
+                                if isinstance(format_value, str):
+                                    format_from_aspects = format_value.lower()
+                                    break
+                
                 # Check if this is a paperback or hardcover
                 # Combine title and description to check format
                 title_text = item.get("title", "").lower()
                 desc_text = short_description.lower() if short_description else ""
                 combined_text = f"{title_text} {desc_text}"
                 
-                # Check for hardcover indicators (exclude these)
-                hardcover_indicators = ["hardcover", "hard cover", "hc", "h/c", "h.c.", "cloth", "dj", "dust jacket", "dustjacket"]
-                is_hardcover = any(indicator in combined_text for indicator in hardcover_indicators)
+                # If we have format from aspects, use that as primary source
+                if format_from_aspects:
+                    # Check if it's hardcover
+                    hardcover_format_indicators = ["hardcover", "hard cover", "hc", "h/c", "cloth", "hardbound", "hard bound"]
+                    is_hardcover = any(indicator in format_from_aspects for indicator in hardcover_format_indicators)
+                    # Check if it's paperback
+                    paperback_format_indicators = ["paperback", "pb", "mass market", "trade", "softcover", "soft cover"]
+                    is_paperback = any(indicator in format_from_aspects for indicator in paperback_format_indicators)
+                else:
+                    # Fall back to text analysis if no format info in aspects
+                    # Check for hardcover indicators (exclude these)
+                    hardcover_indicators = ["hardcover", "hard cover", "hc", "h/c", "h.c.", "cloth", "dj", "dust jacket", "dustjacket", "hardbound", "hard bound"]
+                    is_hardcover = any(indicator in combined_text for indicator in hardcover_indicators)
+                    
+                    # Check for paperback indicators (prefer these)
+                    paperback_indicators = ["paperback", "pb", "p/b", "mass market", "mm pb", "trade pb", "softcover", "soft cover"]
+                    is_paperback = any(indicator in combined_text for indicator in paperback_indicators)
                 
-                # Check for paperback indicators (prefer these)
-                paperback_indicators = ["paperback", "pb", "p/b", "mass market", "mm pb", "trade pb"]
-                is_paperback = any(indicator in combined_text for indicator in paperback_indicators)
+                # STRICT FILTERING: Only include paperbacks, exclude all hardcovers
+                # If it's hardcover (regardless of other indicators), skip it
+                if is_hardcover:
+                    continue
                 
-                # If it's clearly hardcover and not paperback, skip it
-                if is_hardcover and not is_paperback:
+                # If format is unknown and no paperback indicators found, be conservative and skip it
+                # (We want to be sure it's a paperback, not just "maybe")
+                if not is_paperback and not format_from_aspects:
+                    # Skip items with no clear format indication to avoid including hardcovers
                     continue
                 
                 # Try to extract publication year from item specifics or other fields
@@ -263,13 +304,13 @@ class eBayAPI:
                 publication_year = None
                 
                 # Try localizedAspects first (array of objects with localizedName and value)
-                localized_aspects = item.get("localizedAspects", [])
+                # Note: localized_aspects was already retrieved above for format checking, reuse it
                 if isinstance(localized_aspects, list):
                     for aspect in localized_aspects:
                         if isinstance(aspect, dict):
                             name = aspect.get("localizedName", "") or aspect.get("name", "")
                             value = aspect.get("value", "")
-                            # Check if this is a publication year field
+                            # Check if this is a publication year field (skip format/binding fields we already checked)
                             if "publication" in name.lower() and "year" in name.lower():
                                 try:
                                     if isinstance(value, str):

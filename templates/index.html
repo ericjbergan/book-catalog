@@ -559,31 +559,9 @@
             return Math.round(matchRatio * 80 + positionBonus);
         }
         
-        // Determine if a book entry is a magazine
+        // Determine if a book entry is a magazine (using medium field)
         function isMagazine(book) {
-            // Check if printing is "First Appearance" (magazine entries)
-            if (book.printing === 'First Appearance') {
-                return true;
-            }
-            
-            // Check if publisher is a known magazine
-            const publisher = (book.publisher || '').toLowerCase();
-            const magazinePublishers = [
-                'magazine of fantasy and science fiction',
-                'astounding science fiction',
-                'isaac asimov\'s science fiction magazine',
-                'analog',
-                'infinity science fiction',
-                'super science stories',
-                'stellar',
-                'abbotempo',
-                'computers and automation',
-                'american way',
-                'special reports',
-                'the microverse'
-            ];
-            
-            return magazinePublishers.some(mag => publisher.includes(mag));
+            return book.medium === 'Magazine';
         }
         
         // Apply search filter
@@ -606,12 +584,12 @@
             fetch(`/api/books?${params.toString()}`)
                 .then(response => response.json())
                 .then(books => {
-                    // Filter by type (book/magazine) first
+                    // Filter by medium (paperback/magazine) first
                     let filtered = books;
                     if (typeFilter === 'book') {
-                        filtered = books.filter(book => !isMagazine(book));
+                        filtered = books.filter(book => book.medium === 'Paperback');
                     } else if (typeFilter === 'magazine') {
-                        filtered = books.filter(book => isMagazine(book));
+                        filtered = books.filter(book => book.medium === 'Magazine');
                     }
                     
                     // Then filter books using fuzzy matching
@@ -645,7 +623,8 @@
                         return bScore - aScore; // Higher score first
                     });
                     
-                    displayBooks(filtered);
+                    // Skip sorting in displayBooks since we already sorted by relevance
+                    displayBooks(filtered, true);
                 })
                 .catch(error => {
                     console.error('Error searching books:', error);
@@ -667,12 +646,12 @@
                 const response = await fetch(`/api/books?${params.toString()}`);
                 allBooks = await response.json();
                 
-                // Filter by type (book/magazine) first
+                // Filter by medium (paperback/magazine) first
                 let filtered = allBooks;
                 if (typeFilter === 'book') {
-                    filtered = allBooks.filter(book => !isMagazine(book));
+                    filtered = allBooks.filter(book => book.medium === 'Paperback');
                 } else if (typeFilter === 'magazine') {
-                    filtered = allBooks.filter(book => isMagazine(book));
+                    filtered = allBooks.filter(book => book.medium === 'Magazine');
                 }
                 
                 // Apply search filter if there's a search term
@@ -704,9 +683,11 @@
                         return bScore - aScore;
                     });
                     
-                    displayBooks(filtered);
+                    // Skip sorting in displayBooks since we already sorted by relevance
+                    displayBooks(filtered, true);
                 } else {
-                    displayBooks(filtered);
+                    // No search term, use default author/series/title sorting
+                    displayBooks(filtered, false);
                 }
             } catch (error) {
                 console.error('Error loading books:', error);
@@ -762,7 +743,7 @@
         }
         
         // Display books in table
-        function displayBooks(books) {
+        function displayBooks(books, skipSort = false) {
             const tbody = document.getElementById('booksTableBody');
             
             if (books.length === 0) {
@@ -815,31 +796,42 @@
                 return '9999-99-99';
             }
             
-            books.sort((a, b) => {
-                const keyA = getSeriesSortKey(a.series);
-                const keyB = getSeriesSortKey(b.series);
-                
-                // Compare series name
-                if (keyA[0] !== keyB[0]) {
-                    return keyA[0].localeCompare(keyB[0]);
-                }
-                // Compare book number
-                if (keyA[1] !== keyB[1]) {
-                    return keyA[1] - keyB[1];
-                }
-                // Compare part number (for serialized works)
-                if (keyA[2] !== keyB[2]) {
-                    return keyA[2] - keyB[2];
-                }
-                // If same series and number, sort by publication date
-                const dateA = getPublicationDateSortValue(a.publication_date);
-                const dateB = getPublicationDateSortValue(b.publication_date);
-                if (dateA !== dateB) {
-                    return dateA.localeCompare(dateB);
-                }
-                // If same date, sort by title
-                return (a.title || '').localeCompare(b.title || '');
-            });
+            // Only sort if not already sorted (e.g., by relevance when searching)
+            if (!skipSort) {
+                books.sort((a, b) => {
+                    // First sort by author
+                    const authorA = (a.author || '').toLowerCase();
+                    const authorB = (b.author || '').toLowerCase();
+                    if (authorA !== authorB) {
+                        return authorA.localeCompare(authorB);
+                    }
+                    
+                    // Then sort by series (within same author)
+                    const keyA = getSeriesSortKey(a.series);
+                    const keyB = getSeriesSortKey(b.series);
+                    
+                    // Compare series name
+                    if (keyA[0] !== keyB[0]) {
+                        return keyA[0].localeCompare(keyB[0]);
+                    }
+                    // Compare book number (order within series)
+                    if (keyA[1] !== keyB[1]) {
+                        return keyA[1] - keyB[1];
+                    }
+                    // Compare part number (for serialized works)
+                    if (keyA[2] !== keyB[2]) {
+                        return keyA[2] - keyB[2];
+                    }
+                    // If same series and number, sort by publication date
+                    const dateA = getPublicationDateSortValue(a.publication_date);
+                    const dateB = getPublicationDateSortValue(b.publication_date);
+                    if (dateA !== dateB) {
+                        return dateA.localeCompare(dateB);
+                    }
+                    // If same date, sort by title
+                    return (a.title || '').localeCompare(b.title || '');
+                });
+            }
             
             tbody.innerHTML = books.map(book => {
                 // Format date for display and check if price is stale (90+ days old)

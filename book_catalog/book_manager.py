@@ -36,6 +36,7 @@ def add_book(
     price_date=None,
     price_source=None,
     price_notes=None,
+    medium=None,
     db_path='book_catalog.db'
 ):
     """Add a new book to the catalog."""
@@ -73,7 +74,8 @@ def add_book(
             purchase_price=purchase_price,
             price_date=price_date,
             price_source=price_source,
-            price_notes=price_notes
+            price_notes=price_notes,
+            medium=medium
         )
         
         session.add(book)
@@ -130,7 +132,9 @@ def list_all_books(db_path='book_catalog.db'):
     """List all books in the catalog."""
     session = get_db_session(db_path)
     try:
-        return session.query(Book).order_by(Book.author, Book.title).all()
+        # Sort by author, then series, then title
+        # Note: Series sorting by number is handled in frontend for better parsing
+        return session.query(Book).order_by(Book.author, Book.series, Book.title).all()
     finally:
         session.close()
 

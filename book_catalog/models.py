@@ -42,6 +42,9 @@ class Book(Base):
     printing_notes = Column(Text)  # Notes on how printing was determined
     publication_date = Column(String(50))  # Can store date ranges like "1940/41" or "Aug 1951"
     
+    # Medium/Format
+    medium = Column(String(20), index=True)  # e.g., "Paperback", "Magazine", "Hardcover"
+    
     # Condition and grade
     grade = Column(String(20))  # e.g., "Fine", "Very Good", "Good", "Fair"
     condition_notes = Column(Text)  # Detailed condition description

@@ -59,7 +59,8 @@ def api_books():
                 'purchase_price': float(book.purchase_price) if book.purchase_price else None,
                 'isbn': book.isbn or '',
                 'publisher_address': book.publisher_address or '',
-                'number_line': book.number_line or ''
+                'number_line': book.number_line or '',
+                'medium': book.medium or ''
             }
             books_data.append(book_dict)
         
@@ -144,7 +145,7 @@ def api_update_book(book_id):
             'market_value', 'ebay_estimate', 'price', 'printing', 
             'printing_notes', 'cover_artist', 'cover_art_url', 
             'publication_date', 'series', 'stock_number', 'publisher',
-            'title', 'author', 'isbn', 'publisher_address', 'number_line', 'owned'
+            'title', 'author', 'isbn', 'publisher_address', 'number_line', 'owned', 'medium'
         ]
         
         for field in allowed_fields:
