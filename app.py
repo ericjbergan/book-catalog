@@ -2,13 +2,14 @@
 Simple web UI for book catalog with filtering and eBay search.
 """
 
-from flask import Flask, render_template, jsonify, request, Response, stream_with_context
 import json
-from book_catalog.book_manager import list_all_books, get_book_by_id
+import re
+from datetime import date
+
+from flask import Flask, render_template, jsonify, request, Response, stream_with_context
+from book_catalog.book_manager import list_all_books, get_book_by_id, update_book
 from book_catalog.ebay_api import eBayAPI
 from ebay_credentials import EBAY_PRODUCTION_APP_ID, EBAY_PRODUCTION_CERT_ID, EBAY_PRODUCTION_DEV_ID
-from datetime import date
-import json
 
 # Try to import OpenAI credentials (optional)
 try:
@@ -17,6 +18,72 @@ except ImportError:
     OPENAI_API_KEY = None
 
 app = Flask(__name__)
+
+
+def _make_ebay_api():
+    return eBayAPI(
+        app_id=EBAY_PRODUCTION_APP_ID,
+        cert_id=EBAY_PRODUCTION_CERT_ID,
+        dev_id=EBAY_PRODUCTION_DEV_ID,
+        sandbox=False,
+        openai_api_key=OPENAI_API_KEY
+    )
+
+
+def _get_publication_year(book):
+    if not book.publication_date:
+        return None
+    if isinstance(book.publication_date, str):
+        match = re.search(r'\b(19|20)\d{2}\b', book.publication_date)
+        return int(match.group()) if match else None
+    return book.publication_date.year
+
+
+def _search_and_filter(api, book, limit=50):
+    """Search eBay and filter results for a specific book edition."""
+    results = api.search_books(
+        title=book.title,
+        author=None,
+        publisher=book.publisher,
+        stock_number=None,
+        limit=limit
+    )
+    publication_year = _get_publication_year(book)
+    if api.openai_client and (book.publisher or book.stock_number):
+        buy_it_now = [r for r in results if r.get("is_buy_it_now", False)]
+        if buy_it_now:
+            filtered = api._filter_listings_with_chatgpt(
+                buy_it_now, book.title, book.author, book.publisher,
+                book.stock_number, target_publication_year=publication_year,
+                require_condition_info=False
+            )
+            other = [r for r in results if not r.get("is_buy_it_now", False)]
+            results = filtered + other
+    elif book.stock_number:
+        results = api.prioritize_results(results, book.author, book.stock_number)
+    return results, publication_year
+
+
+def _format_results(results, include_format=True):
+    """Format raw eBay results for display/storage."""
+    formatted = []
+    for r in results:
+        format_type = r.get('format', '')
+        title = r.get('title', '')
+        if include_format and format_type == 'Hardcover':
+            title = f"[HC] {title}"
+        price = r.get('price')
+        shipping = r.get('shipping_cost')
+        formatted.append({
+            'title': title,
+            'price': f"${price:.2f}" if price else 'N/A',
+            'shipping': f"${float(shipping):.2f}" if shipping else 'Free',
+            'condition': r.get('condition', 'Unknown'),
+            'url': r.get('url', ''),
+            'format': format_type,
+            'total': f"${float(price) + float(shipping):.2f}" if price and shipping else (f"${price:.2f}" if price else 'N/A'),
+        })
+    return formatted
 
 
 @app.route('/')
@@ -31,38 +98,7 @@ def api_books():
     try:
         books = list_all_books()
         
-        # Convert SQLAlchemy objects to dictionaries
-        books_data = []
-        for book in books:
-            book_dict = {
-                'id': book.id,
-                'author': book.author,
-                'title': book.title,
-                'series': book.series or '',
-                'publisher': book.publisher or '',
-                'stock_number': book.stock_number or '',
-                'price': book.price or '',
-                'grade': book.grade or '',
-                'owned': book.owned,
-                'market_value': float(book.market_value) if book.market_value else None,
-                'ebay_estimate': float(book.ebay_estimate) if book.ebay_estimate else None,
-                'price_date': str(book.price_date) if book.price_date else None,
-                'price_source': book.price_source or '',
-                'price_notes': book.price_notes or '',
-                'publication_date': str(book.publication_date) if book.publication_date else None,  # Can be date string or range like "1940/41"
-                'cover_artist': book.cover_artist or '',
-                'notes': book.notes or '',
-                'condition_notes': book.condition_notes or '',
-                'printing': book.printing or '',
-                'printing_notes': book.printing_notes or '',
-                'cover_art_url': book.cover_art_url or '',
-                'purchase_price': float(book.purchase_price) if book.purchase_price else None,
-                'isbn': book.isbn or '',
-                'publisher_address': book.publisher_address or '',
-                'number_line': book.number_line or '',
-                'medium': book.medium or ''
-            }
-            books_data.append(book_dict)
+        books_data = [book.to_dict() for book in books if book is not None]
         
         # Apply filters
         author_filter = request.args.get('author')
@@ -86,7 +122,7 @@ def api_authors():
     """API endpoint to get list of all authors, sorted by last name."""
     try:
         books = list_all_books()
-        authors = set(book.author for book in books if book.author)
+        authors = set(book.author for book in books if book and book.author)
         
         # Sort by last name (or full name if no space)
         def get_last_name(author):
@@ -105,12 +141,10 @@ def api_authors():
 def api_toggle_owned(book_id):
     """API endpoint to toggle owned status of a book."""
     try:
-        from book_catalog.book_manager import get_book_by_id, update_book
-        
         book = get_book_by_id(book_id)
         if not book:
             return jsonify({'error': 'Book not found'}), 404
-        
+
         # Toggle owned status
         new_owned_status = not book.owned
         update_book(book_id, owned=new_owned_status)
@@ -129,12 +163,10 @@ def api_toggle_owned(book_id):
 def api_update_book(book_id):
     """API endpoint to update book information."""
     try:
-        from book_catalog.book_manager import get_book_by_id, update_book
-        
         book = get_book_by_id(book_id)
         if not book:
             return jsonify({'error': 'Book not found'}), 404
-        
+
         # Get update data from request
         data = request.get_json()
         
@@ -142,7 +174,7 @@ def api_update_book(book_id):
         update_fields = {}
         allowed_fields = [
             'grade', 'condition_notes', 'purchase_price', 'notes', 
-            'market_value', 'ebay_estimate', 'price', 'printing', 
+            'ebay_estimate', 'price', 'printing', 
             'printing_notes', 'cover_artist', 'cover_art_url', 
             'publication_date', 'series', 'stock_number', 'publisher',
             'title', 'author', 'isbn', 'publisher_address', 'number_line', 'owned', 'medium'
@@ -173,70 +205,14 @@ def api_update_book(book_id):
 def api_ebay_search(book_id):
     """API endpoint to search eBay for a specific book and optionally update estimate."""
     try:
-        from book_catalog.book_manager import update_book
-        from datetime import date
-        
         book = get_book_by_id(book_id)
         if not book:
             return jsonify({'error': 'Book not found'}), 404
-        
-        # Initialize eBay API (with OpenAI key if available)
-        api = eBayAPI(
-            app_id=EBAY_PRODUCTION_APP_ID,
-            cert_id=EBAY_PRODUCTION_CERT_ID,
-            dev_id=EBAY_PRODUCTION_DEV_ID,
-            sandbox=False,
-            openai_api_key=OPENAI_API_KEY
-        )
-        
-        # Search eBay (using only title and publisher to get more results)
-        results = api.search_books(
-            title=book.title,
-            author=None,  # Don't include in search to widen results
-            publisher=book.publisher,
-            stock_number=None,  # Don't include in search to widen results
-            limit=50  # Get more results for better estimate
-        )
-        
-        # Filter results to match the exact edition
-        # Use ChatGPT if available, otherwise use prioritize_results (fuzzy matching)
-        if api.openai_client and (book.publisher or book.stock_number):
-            # Filter Buy It Now listings using ChatGPT
-            buy_it_now_results = [r for r in results if r.get("is_buy_it_now", False)]
-            if buy_it_now_results:
-                # Get publication year if available
-                publication_year = None
-                if book.publication_date:
-                    # Handle both date objects and string dates (including ranges)
-                    if isinstance(book.publication_date, str):
-                        # Try to extract year from string (could be "1940/41", "Aug 1951", "1951", etc.)
-                        import re
-                        year_match = re.search(r'\b(19|20)\d{2}\b', book.publication_date)
-                        if year_match:
-                            publication_year = int(year_match.group())
-                    else:
-                        # It's a date object
-                        publication_year = book.publication_date.year
-                
-                filtered_results = api._filter_listings_with_chatgpt(
-                    buy_it_now_results,
-                    book.title,
-                    book.author,
-                    book.publisher,
-                    book.stock_number,
-                    target_publication_year=publication_year,
-                    require_condition_info=False  # For display, show all matches
-                )
-                # Combine filtered results with non-Buy It Now results for display
-                other_results = [r for r in results if not r.get("is_buy_it_now", False)]
-                results = filtered_results + other_results
-        else:
-            # Fall back to prioritize_results (fuzzy matching)
-            if book.stock_number:
-                results = api.prioritize_results(results, book.author, book.stock_number)
-        
-        # Fetch shipping costs from item details if missing from search results
-        # Limit to top 10 results to avoid too many API calls
+
+        api = _make_ebay_api()
+        results, publication_year = _search_and_filter(api, book, limit=50)
+
+        # Fetch shipping costs from item details if missing (top 10 only)
         for i, r in enumerate(results[:10]):
             if (r.get("shipping_cost") == 0.0 or r.get("shipping_cost") is None) and r.get("item_id"):
                 try:
@@ -248,25 +224,8 @@ def api_ebay_search(book_id):
                     # If fetching fails, keep the existing value
                     pass
         
-        # Format results for display
-        formatted_results = []
-        for r in results:
-            format_type = r.get('format', '')
-            title = r.get('title', '')
-            # Add format indicator to title if it's hardcover (to help user identify)
-            if format_type == 'Hardcover':
-                title = f"[HC] {title}"
-            
-            formatted_results.append({
-                'title': title,
-                'price': f"${r.get('price', 0):.2f}" if r.get('price') else 'N/A',
-                'shipping': f"${float(r.get('shipping_cost', 0)):.2f}" if r.get('shipping_cost') else 'Free',
-                'condition': r.get('condition', 'Unknown'),
-                'url': r.get('url', ''),
-                'format': format_type,
-                'total': f"${(float(r.get('price', 0)) + float(r.get('shipping_cost', 0))):.2f}" if r.get('price') and r.get('shipping_cost') else r.get('price', 'N/A')
-            })
-        
+        formatted_results = _format_results(results)
+
         # Save search results to database
         update_book(
             book_id,
@@ -286,6 +245,7 @@ def api_ebay_search(book_id):
                     publisher=book.publisher,
                     stock_number=book.stock_number,
                     grade=book.grade,
+                    publication_year=publication_year,
                     min_results=3
                 )
                 
@@ -377,15 +337,11 @@ def api_ebay_estimate_bulk():
     """API endpoint to run eBay estimates for multiple books with progress updates."""
     def generate():
         try:
-            from book_catalog.book_manager import list_all_books, update_book
-            from datetime import date
-            import re
-            
             data = request.get_json()
             filter_type = data.get('filter', 'all')  # 'all', 'owned', 'not_owned'
             
             # Get books based on filter
-            all_books = list_all_books()
+            all_books = [b for b in list_all_books() if b is not None]
             if filter_type == 'owned':
                 books = [b for b in all_books if b.owned]
             elif filter_type == 'not_owned':
@@ -393,14 +349,7 @@ def api_ebay_estimate_bulk():
             else:
                 books = all_books
             
-            # Initialize eBay API
-            api = eBayAPI(
-                app_id=EBAY_PRODUCTION_APP_ID,
-                cert_id=EBAY_PRODUCTION_CERT_ID,
-                dev_id=EBAY_PRODUCTION_DEV_ID,
-                sandbox=False,
-                openai_api_key=OPENAI_API_KEY
-            )
+            api = _make_ebay_api()
             
             total = len(books)
             results = {
@@ -422,55 +371,8 @@ def api_ebay_estimate_bulk():
                     # Send progress update
                     yield f"data: {json.dumps({'type': 'progress', 'current': idx, 'total': total, 'message': f'Processing {idx}/{total}: {book.title}'})}\n\n"
                     
-                    # Get publication year if available
-                    publication_year = None
-                    if book.publication_date:
-                        if isinstance(book.publication_date, str):
-                            year_match = re.search(r'\b(19|20)\d{2}\b', book.publication_date)
-                            if year_match:
-                                publication_year = int(year_match.group())
-                        else:
-                            publication_year = book.publication_date.year
-                    
-                    # First, do a search to get results (so we can save them even if not enough for estimate)
-                    search_results = api.search_books(
-                        title=book.title,
-                        author=None,  # Don't include in search to widen results
-                        publisher=book.publisher,
-                        stock_number=None,  # Don't include in search to widen results
-                        limit=50
-                    )
-                    
-                    # Filter results to match the exact edition if we have publisher/stock_number
-                    if api.openai_client and (book.publisher or book.stock_number):
-                        buy_it_now_results = [r for r in search_results if r.get("is_buy_it_now", False)]
-                        if buy_it_now_results:
-                            filtered_results = api._filter_listings_with_chatgpt(
-                                buy_it_now_results,
-                                book.title,
-                                book.author,
-                                book.publisher,
-                                book.stock_number,
-                                target_publication_year=publication_year,
-                                require_condition_info=False
-                            )
-                            other_results = [r for r in search_results if not r.get("is_buy_it_now", False)]
-                            search_results = filtered_results + other_results
-                    else:
-                        if book.stock_number:
-                            search_results = api.prioritize_results(search_results, book.author, book.stock_number)
-                    
-                    # Format results for saving
-                    formatted_results = []
-                    for r in search_results:
-                        formatted_results.append({
-                            'title': r.get('title', ''),
-                            'price': f"${r.get('price', 0):.2f}" if r.get('price') else 'N/A',
-                            'shipping': f"${float(r.get('shipping_cost', 0)):.2f}" if r.get('shipping_cost') else 'Free',
-                            'condition': r.get('condition', 'Unknown'),
-                            'url': r.get('url', ''),
-                            'total': f"${(float(r.get('price', 0)) + float(r.get('shipping_cost', 0))):.2f}" if r.get('price') and r.get('shipping_cost') else r.get('price', 'N/A')
-                        })
+                    search_results, publication_year = _search_and_filter(api, book, limit=50)
+                    formatted_results = _format_results(search_results)
                     
                     # Save search results to database (even if not enough for estimate)
                     update_book(

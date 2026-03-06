@@ -44,7 +44,7 @@ def import_from_csv(csv_path, db_path='book_catalog.db', encoding='utf-8'):
     - number_line, copyright_date, copyright_text, cover_artist, cover_art_url, logo_description,
     - cover_description, printing, printing_number, printing_notes, publication_date, grade,
     - condition_notes, owned, notes, spine_info, back_cover_info,
-    - market_value, ebay_estimate, purchase_price, price_date, price_source, price_notes
+    - ebay_estimate, purchase_price, price_date, price_source, price_notes
     """
     books_added = 0
     books_failed = 0
@@ -98,12 +98,12 @@ def import_from_csv(csv_path, db_path='book_catalog.db', encoding='utf-8'):
                         'notes': data.get('notes'),
                         'spine_info': data.get('spine_info'),
                         'back_cover_info': data.get('back_cover_info'),
-                        'market_value': float(data.get('market_value')) if data.get('market_value') and data.get('market_value').strip() else None,
                         'ebay_estimate': float(data.get('ebay_estimate')) if data.get('ebay_estimate') and data.get('ebay_estimate').strip() else None,
                         'purchase_price': float(data.get('purchase_price')) if data.get('purchase_price') and data.get('purchase_price').strip() else None,
                         'price_date': parse_date(data.get('price_date')),
                         'price_source': data.get('price_source'),
                         'price_notes': data.get('price_notes'),
+                        'medium': data.get('medium'),
                         'db_path': db_path
                     }
                     

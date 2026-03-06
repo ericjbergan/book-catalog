@@ -371,14 +371,12 @@ class eBayAPI:
                     "is_hardcover": is_hardcover
                 })
             
-            # Sort results: paperbacks first, then others, then hardcovers last
+            # Sort results: paperbacks first, then by price
             results.sort(key=lambda x: (
                 0 if x.get("is_paperback") else (1 if not x.get("is_hardcover") else 2),
                 x.get("price") or float('inf')
             ))
-            
-            return results
-            
+
             return results
         except requests.exceptions.RequestException as e:
             raise Exception(f"Failed to search eBay: {e}")
@@ -567,24 +565,15 @@ class eBayAPI:
         """
         if not target_stock_number:
             return results  # No prioritization needed
-        
-        # Score each result
-        scored_results = []
+
+        # Filter to only results that match the stock number, then sort by price
+        matches = []
         for result in results:
-            score = 0
-            title = result.get("title", "")
-            
-            # Stock number match (if provided) - highest priority with fuzzy matching
-            if self._fuzzy_match_stock_number(title, target_stock_number):
-                score += 50  # Stock number match is very important
-            
-            scored_results.append((score, result))
-        
-        # Sort by score (highest first), then by price (lowest first) for same score
-        scored_results.sort(key=lambda x: (-x[0], x[1].get("price", 0) or 0))
-        
-        # Return just the results (without scores)
-        return [result for _, result in scored_results]
+            if self._fuzzy_match_stock_number(result.get("title", ""), target_stock_number):
+                matches.append(result)
+
+        matches.sort(key=lambda x: x.get("price", 0) or 0)
+        return matches
     
     def _condition_id_to_text(self, condition_id: str) -> str:
         """
@@ -962,7 +951,7 @@ Do not include any explanation, just the index:grade pairs or "none"."""
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.1,  # Low temperature for more deterministic results
-                max_tokens=400  # Increased to accommodate grade information
+                max_tokens=1000  # Enough for 50 listings with index:grade pairs
             )
             
             result_text = response.choices[0].message.content.strip()
@@ -1002,9 +991,9 @@ Do not include any explanation, just the index:grade pairs or "none"."""
                 
                 return matched_listings
             except (ValueError, IndexError) as e:
-                # If parsing fails, return original listings (fallback)
+                # If parsing fails entirely, return nothing rather than all unfiltered listings
                 print(f"Warning: Could not parse ChatGPT response: {result_text}, error: {e}")
-                return listings
+                return []
         
         except Exception as e:
             print(f"Warning: ChatGPT filtering failed: {e}. Using original listings.")

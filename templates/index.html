@@ -367,6 +367,57 @@
         .btn-secondary:hover {
             background: #545b62;
         }
+        
+        /* Inline editing styles */
+        .editable-cell {
+            cursor: pointer;
+            position: relative;
+            min-width: 50px;
+        }
+        
+        .editable-cell:hover {
+            background-color: #e7f3ff;
+        }
+        
+        .editable-cell.editing {
+            padding: 0;
+        }
+        
+        .editable-cell input,
+        .editable-cell select {
+            width: 100%;
+            padding: 8px;
+            border: 2px solid #007bff;
+            border-radius: 4px;
+            font-size: 14px;
+            font-family: inherit;
+            background: white;
+            box-sizing: border-box;
+        }
+        
+        .editable-cell input:focus,
+        .editable-cell select:focus {
+            outline: none;
+            border-color: #0056b3;
+        }
+        
+        .edit-indicator {
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            font-size: 10px;
+            color: #007bff;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        
+        .editable-cell:hover .edit-indicator {
+            opacity: 0.5;
+        }
+        
+        .editable-cell.editing .edit-indicator {
+            opacity: 1;
+        }
     </style>
 </head>
 <body>
@@ -433,7 +484,6 @@
                     <th>Cover Price</th>
                     <th>Grade</th>
                     <th>Owned</th>
-                    <th>Market Value</th>
                     <th>eBay Estimate</th>
                     <th>Actions</th>
                 </tr>
@@ -692,7 +742,7 @@
             } catch (error) {
                 console.error('Error loading books:', error);
                 document.getElementById('booksTableBody').innerHTML = 
-                    '<tr><td colspan="12" class="error">Error loading books. Please try again.</td></tr>';
+                    '<tr><td colspan="11" class="error">Error loading books. Please try again.</td></tr>';
             }
         }
         
@@ -747,7 +797,7 @@
             const tbody = document.getElementById('booksTableBody');
             
             if (books.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="12" class="loading">No books found.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="11" class="loading">No books found.</td></tr>';
                 return;
             }
             
@@ -833,11 +883,20 @@
                 });
             }
             
+            // Helper function to escape HTML for attributes
+            function escapeHtmlAttr(text) {
+                if (!text) return '';
+                return String(text)
+                    .replace(/&/g, '&amp;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;');
+            }
+            
             tbody.innerHTML = books.map(book => {
                 // Format date for display and check if price is stale (90+ days old)
-                let marketValueDateStr = '';
                 let ebayEstimateDateStr = '';
-                let marketValueStale = false;
                 let ebayEstimateStale = false;
                 
                 if (book.price_date) {
@@ -852,13 +911,6 @@
                     // Format date string
                     const dateStr = priceDate.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
                     
-                    // Check if stale and format date for each value
-                    if (book.market_value) {
-                        marketValueDateStr = `<div style="font-size: 11px; font-weight: normal; color: #666; margin-top: 2px;">(as of ${dateStr})</div>`;
-                        if (daysDiff >= 90) {
-                            marketValueStale = true;
-                        }
-                    }
                     // Show date for eBay estimate if estimate exists OR if price_source indicates eBay search was performed
                     if (book.ebay_estimate || (book.price_source && book.price_source.toLowerCase().includes('ebay'))) {
                         ebayEstimateDateStr = `<div style="font-size: 11px; font-weight: normal; color: #666; margin-top: 2px;">(as of ${dateStr})</div>`;
@@ -898,20 +950,43 @@
                 
                 return `
                 <tr>
-                    <td>${book.series || ''}</td>
-                    <td>${book.author}</td>
-                    <td>${book.title}</td>
-                    <td>${book.publisher || ''}</td>
-                    <td>${publicationDateStr}</td>
-                    <td>${book.stock_number || ''}</td>
-                    <td>${book.price || ''}</td>
-                    <td>${book.grade || ''}</td>
+                    <td class="editable-cell" data-field="series" data-book-id="${book.id}" data-value="${escapeHtmlAttr(book.series || '')}" ondblclick="startEditFromCell(this)">
+                        ${book.series || ''}
+                        <span class="edit-indicator">✎</span>
+                    </td>
+                    <td class="editable-cell" data-field="author" data-book-id="${book.id}" data-value="${escapeHtmlAttr(book.author || '')}" ondblclick="startEditFromCell(this)">
+                        ${book.author}
+                        <span class="edit-indicator">✎</span>
+                    </td>
+                    <td class="editable-cell" data-field="title" data-book-id="${book.id}" data-value="${escapeHtmlAttr(book.title || '')}" ondblclick="startEditFromCell(this)">
+                        ${book.title}
+                        <span class="edit-indicator">✎</span>
+                    </td>
+                    <td class="editable-cell" data-field="publisher" data-book-id="${book.id}" data-value="${escapeHtmlAttr(book.publisher || '')}" ondblclick="startEditFromCell(this)">
+                        ${book.publisher || ''}
+                        <span class="edit-indicator">✎</span>
+                    </td>
+                    <td class="editable-cell" data-field="publication_date" data-book-id="${book.id}" data-value="${escapeHtmlAttr(book.publication_date || '')}" data-edit-type="date" ondblclick="startEditFromCell(this)">
+                        ${publicationDateStr}
+                        <span class="edit-indicator">✎</span>
+                    </td>
+                    <td class="editable-cell" data-field="stock_number" data-book-id="${book.id}" data-value="${escapeHtmlAttr(book.stock_number || '')}" ondblclick="startEditFromCell(this)">
+                        ${book.stock_number || ''}
+                        <span class="edit-indicator">✎</span>
+                    </td>
+                    <td class="editable-cell" data-field="price" data-book-id="${book.id}" data-value="${escapeHtmlAttr(book.price || '')}" ondblclick="startEditFromCell(this)">
+                        ${book.price || ''}
+                        <span class="edit-indicator">✎</span>
+                    </td>
+                    <td class="editable-cell" data-field="grade" data-book-id="${book.id}" data-value="${escapeHtmlAttr(book.grade || '')}" data-edit-type="grade" ondblclick="startEditFromCell(this)">
+                        ${book.grade || ''}
+                        <span class="edit-indicator">✎</span>
+                    </td>
                     <td>
                         <span class="owned-badge ${book.owned ? 'owned' : 'not-owned'}">
                             ${book.owned ? 'Owned' : 'Not Owned'}
                         </span>
                     </td>
-                    <td class="price ${marketValueStale ? 'stale' : ''}">${book.market_value ? '<div>$' + book.market_value.toFixed(2) + '</div>' + marketValueDateStr : ''}</td>
                     <td class="price">${formatEbayEstimate(book)}</td>
                     <td>
                         <div class="action-menu">
@@ -1239,7 +1314,6 @@
                     html += `
                         <div style="background: #d4edda; padding: 10px; border-radius: 4px; margin-bottom: 15px; color: #155724;">
                             <strong>✓ eBay Estimate Updated!</strong><br>
-                            ${data.estimate.market_value ? 'Market Value: $' + data.estimate.market_value.toFixed(2) + '<br>' : ''}
                             eBay Estimate: $${data.estimate.ebay_estimate ? data.estimate.ebay_estimate.toFixed(2) : 'N/A'}<br>
                             <small>Date: ${data.estimate.date}</small>
                         </div>
@@ -1471,6 +1545,121 @@
             const overlay = document.getElementById('bulkEstimateOverlay');
             if (progressDiv) progressDiv.remove();
             if (overlay) overlay.remove();
+        }
+        
+        // Inline editing functions
+        let currentEditCell = null;
+        let originalValue = null;
+        
+        function startEditFromCell(cell) {
+            const bookId = cell.getAttribute('data-book-id');
+            const field = cell.getAttribute('data-field');
+            const currentValue = cell.getAttribute('data-value') || '';
+            const editType = cell.getAttribute('data-edit-type') || 'text';
+            
+            // Close any other open edits
+            if (currentEditCell && currentEditCell !== cell) {
+                cancelEdit(currentEditCell);
+            }
+            
+            currentEditCell = cell;
+            originalValue = currentValue;
+            
+            cell.classList.add('editing');
+            
+            if (editType === 'grade') {
+                const select = document.createElement('select');
+                select.style.width = '100%';
+                const grades = ['', 'Fine', 'Near Fine', 'Very Good', 'Good', 'Fair', 'Poor'];
+                grades.forEach(grade => {
+                    const option = document.createElement('option');
+                    option.value = grade;
+                    option.textContent = grade || '-- Select Grade --';
+                    if (grade === currentValue) option.selected = true;
+                    select.appendChild(option);
+                });
+                
+                select.onblur = () => saveEdit(cell, bookId, field, select.value);
+                select.onkeydown = (e) => {
+                    if (e.key === 'Escape') {
+                        e.preventDefault();
+                        cancelEdit(cell);
+                    }
+                };
+                
+                cell.innerHTML = '';
+                cell.appendChild(select);
+                select.focus();
+            } else {
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.value = currentValue || '';
+                if (editType === 'date') {
+                    input.placeholder = 'e.g., 1965, Dec 1965, 1965-01-01, 1940/41';
+                }
+                input.style.width = '100%';
+                input.onblur = () => saveEdit(cell, bookId, field, input.value);
+                input.onkeydown = (e) => {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        input.blur();
+                    } else if (e.key === 'Escape') {
+                        e.preventDefault();
+                        cancelEdit(cell);
+                    }
+                };
+                
+                cell.innerHTML = '';
+                cell.appendChild(input);
+                input.focus();
+                input.select();
+            }
+        }
+        
+        async function saveEdit(cell, bookId, field, newValue) {
+            if (newValue === originalValue) {
+                cancelEdit(cell);
+                return;
+            }
+            
+            // Show saving indicator
+            cell.innerHTML = '<span style="color: #666; font-style: italic;">Saving...</span>';
+            
+            try {
+                const updateData = {};
+                updateData[field] = newValue || null;
+                
+                const response = await fetch(`/api/books/${bookId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(updateData)
+                });
+                
+                if (response.ok) {
+                    // Reload books to show updated value
+                    loadBooks();
+                } else {
+                    const error = await response.json();
+                    alert('Error: ' + (error.error || 'Failed to update'));
+                    cancelEdit(cell);
+                }
+            } catch (error) {
+                console.error('Error updating book:', error);
+                alert('Error updating book. Please try again.');
+                cancelEdit(cell);
+            }
+            
+            currentEditCell = null;
+        }
+        
+        function cancelEdit(cell) {
+            if (!cell) return;
+            
+            // Reload to get the original value back
+            loadBooks();
+            currentEditCell = null;
         }
         
         // Initialize

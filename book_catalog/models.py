@@ -7,6 +7,8 @@ from datetime import date
 
 Base = declarative_base()
 
+_session_factories = {}  # Cache session factories by db_path
+
 
 class Book(Base):
     """Model for cataloging books with printing and grade information."""
@@ -53,7 +55,6 @@ class Book(Base):
     owned = Column(Boolean, default=True, index=True)
     
     # Price tracking
-    market_value = Column(Float)  # Best guess at current market value in USD (optimistic estimate)
     ebay_estimate = Column(Float)  # eBay-based estimate from Buy It Now listings, considering condition/grade
     purchase_price = Column(Float)  # Price paid when acquired (if known)
     price_date = Column(Date)  # Date when price was estimated/recorded
@@ -67,17 +68,47 @@ class Book(Base):
     ebay_search_results = Column(Text)  # JSON string of most recent eBay search results
     ebay_search_date = Column(Date)  # Date of most recent eBay search
     
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'author': self.author,
+            'title': self.title,
+            'series': self.series or '',
+            'publisher': self.publisher or '',
+            'stock_number': self.stock_number or '',
+            'price': self.price or '',
+            'grade': self.grade or '',
+            'owned': self.owned,
+            'ebay_estimate': float(self.ebay_estimate) if self.ebay_estimate else None,
+            'price_date': str(self.price_date) if self.price_date else None,
+            'price_source': self.price_source or '',
+            'price_notes': self.price_notes or '',
+            'publication_date': str(self.publication_date) if self.publication_date else None,
+            'cover_artist': self.cover_artist or '',
+            'notes': self.notes or '',
+            'condition_notes': self.condition_notes or '',
+            'printing': self.printing or '',
+            'printing_notes': self.printing_notes or '',
+            'cover_art_url': self.cover_art_url or '',
+            'purchase_price': float(self.purchase_price) if self.purchase_price else None,
+            'isbn': self.isbn or '',
+            'publisher_address': self.publisher_address or '',
+            'number_line': self.number_line or '',
+            'medium': self.medium or '',
+        }
+
     def __repr__(self):
         return f"<Book(id={self.id}, author='{self.author}', title='{self.title}', " \
                f"publisher='{self.publisher}', stock_number='{self.stock_number}', owned={self.owned})>"
 
 
 def get_db_session(db_path='book_catalog.db'):
-    """Create and return a database session."""
-    engine = create_engine(f'sqlite:///{db_path}', echo=False)
-    Base.metadata.create_all(engine)
-    Session = sessionmaker(bind=engine)
-    return Session()
+    """Create and return a database session, reusing the engine across calls."""
+    if db_path not in _session_factories:
+        engine = create_engine(f'sqlite:///{db_path}', echo=False)
+        Base.metadata.create_all(engine)
+        _session_factories[db_path] = sessionmaker(bind=engine)
+    return _session_factories[db_path]()
 
 
 def init_database(db_path='book_catalog.db'):
