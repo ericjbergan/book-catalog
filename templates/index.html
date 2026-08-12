@@ -464,17 +464,20 @@
         <div class="filters" style="margin-top: 10px; padding: 10px;">
             <div class="filter-group">
                 <label>Bulk eBay Estimates</label>
-                <div style="display: flex; gap: 10px;">
+                <div style="display: flex; gap: 10px; align-items: center;">
                     <button onclick="runBulkEstimates('all')" style="background: #28a745;">All Books</button>
                     <button onclick="runBulkEstimates('owned')" style="background: #17a2b8;">Owned Only</button>
                     <button onclick="runBulkEstimates('not_owned')" style="background: #ffc107; color: #333;">Not Owned Only</button>
+                    <button id="estimateSelectedBtn" onclick="runBulkEstimatesForSelected()" style="background: #6f42c1;" disabled>Estimate Selected (<span id="selectedCount">0</span>)</button>
+                    <button onclick="clearSelection()" style="background: #6c757d;">Clear Selection</button>
                 </div>
             </div>
         </div>
-        
+
         <table class="books-table">
             <thead>
                 <tr>
+                    <th style="width: 32px; text-align: center;"><input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAllVisible(this)" title="Select all visible rows"></th>
                     <th>Series</th>
                     <th>Author</th>
                     <th>Title</th>
@@ -524,7 +527,34 @@
     
     <script>
         let allBooks = [];
-        
+        // Book IDs currently checked in the row-selection column. Persists across
+        // filter/sort/search re-renders so the selection isn't lost when the table
+        // re-paints.
+        const selectedBookIds = new Set();
+
+        // Escape untrusted text for safe interpolation into HTML — both text
+        // content and quoted attribute values. Book fields are user-typed and
+        // eBay listing titles/conditions come from third-party sellers, so
+        // everything from the API must pass through this before hitting .innerHTML.
+        function esc(text) {
+            if (text === null || text === undefined) return '';
+            return String(text)
+                .replace(/&/g, '&amp;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+        }
+
+        // Only allow http(s) URLs into href attributes. Blocks javascript:,
+        // data:, vbscript:, etc. that would execute on click.
+        function safeUrl(url) {
+            if (!url) return '';
+            const s = String(url).trim();
+            if (/^https?:\/\//i.test(s)) return esc(s);
+            return '';
+        }
+
         // Load authors on page load
         async function loadAuthors() {
             try {
@@ -742,7 +772,7 @@
             } catch (error) {
                 console.error('Error loading books:', error);
                 document.getElementById('booksTableBody').innerHTML = 
-                    '<tr><td colspan="11" class="error">Error loading books. Please try again.</td></tr>';
+                    '<tr><td colspan="12" class="error">Error loading books. Please try again.</td></tr>';
             }
         }
         
@@ -797,7 +827,7 @@
             const tbody = document.getElementById('booksTableBody');
             
             if (books.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="11" class="loading">No books found.</td></tr>';
+                tbody.innerHTML = '<tr><td colspan="12" class="loading">No books found.</td></tr>';
                 return;
             }
             
@@ -883,17 +913,6 @@
                 });
             }
             
-            // Helper function to escape HTML for attributes
-            function escapeHtmlAttr(text) {
-                if (!text) return '';
-                return String(text)
-                    .replace(/&/g, '&amp;')
-                    .replace(/"/g, '&quot;')
-                    .replace(/'/g, '&#39;')
-                    .replace(/</g, '&lt;')
-                    .replace(/>/g, '&gt;');
-            }
-            
             tbody.innerHTML = books.map(book => {
                 // Format date for display and check if price is stale (90+ days old)
                 let ebayEstimateDateStr = '';
@@ -950,36 +969,39 @@
                 
                 return `
                 <tr>
-                    <td class="editable-cell" data-field="series" data-book-id="${book.id}" data-value="${escapeHtmlAttr(book.series || '')}" ondblclick="startEditFromCell(this)">
-                        ${book.series || ''}
+                    <td style="text-align: center;">
+                        <input type="checkbox" class="row-select" data-book-id="${book.id}" onchange="toggleRowSelection(${book.id}, this)"${selectedBookIds.has(book.id) ? ' checked' : ''}>
+                    </td>
+                    <td class="editable-cell" data-field="series" data-book-id="${book.id}" data-value="${esc(book.series)}" ondblclick="startEditFromCell(this)">
+                        ${esc(book.series)}
                         <span class="edit-indicator">✎</span>
                     </td>
-                    <td class="editable-cell" data-field="author" data-book-id="${book.id}" data-value="${escapeHtmlAttr(book.author || '')}" ondblclick="startEditFromCell(this)">
-                        ${book.author}
+                    <td class="editable-cell" data-field="author" data-book-id="${book.id}" data-value="${esc(book.author)}" ondblclick="startEditFromCell(this)">
+                        ${esc(book.author)}
                         <span class="edit-indicator">✎</span>
                     </td>
-                    <td class="editable-cell" data-field="title" data-book-id="${book.id}" data-value="${escapeHtmlAttr(book.title || '')}" ondblclick="startEditFromCell(this)">
-                        ${book.title}
+                    <td class="editable-cell" data-field="title" data-book-id="${book.id}" data-value="${esc(book.title)}" ondblclick="startEditFromCell(this)">
+                        ${esc(book.title)}
                         <span class="edit-indicator">✎</span>
                     </td>
-                    <td class="editable-cell" data-field="publisher" data-book-id="${book.id}" data-value="${escapeHtmlAttr(book.publisher || '')}" ondblclick="startEditFromCell(this)">
-                        ${book.publisher || ''}
+                    <td class="editable-cell" data-field="publisher" data-book-id="${book.id}" data-value="${esc(book.publisher)}" ondblclick="startEditFromCell(this)">
+                        ${esc(book.publisher)}
                         <span class="edit-indicator">✎</span>
                     </td>
-                    <td class="editable-cell" data-field="publication_date" data-book-id="${book.id}" data-value="${escapeHtmlAttr(book.publication_date || '')}" data-edit-type="date" ondblclick="startEditFromCell(this)">
-                        ${publicationDateStr}
+                    <td class="editable-cell" data-field="publication_date" data-book-id="${book.id}" data-value="${esc(book.publication_date)}" data-edit-type="date" ondblclick="startEditFromCell(this)">
+                        ${esc(publicationDateStr)}
                         <span class="edit-indicator">✎</span>
                     </td>
-                    <td class="editable-cell" data-field="stock_number" data-book-id="${book.id}" data-value="${escapeHtmlAttr(book.stock_number || '')}" ondblclick="startEditFromCell(this)">
-                        ${book.stock_number || ''}
+                    <td class="editable-cell" data-field="stock_number" data-book-id="${book.id}" data-value="${esc(book.stock_number)}" ondblclick="startEditFromCell(this)">
+                        ${esc(book.stock_number)}
                         <span class="edit-indicator">✎</span>
                     </td>
-                    <td class="editable-cell" data-field="price" data-book-id="${book.id}" data-value="${escapeHtmlAttr(book.price || '')}" ondblclick="startEditFromCell(this)">
-                        ${book.price || ''}
+                    <td class="editable-cell" data-field="price" data-book-id="${book.id}" data-value="${esc(book.price)}" ondblclick="startEditFromCell(this)">
+                        ${esc(book.price)}
                         <span class="edit-indicator">✎</span>
                     </td>
-                    <td class="editable-cell" data-field="grade" data-book-id="${book.id}" data-value="${escapeHtmlAttr(book.grade || '')}" data-edit-type="grade" ondblclick="startEditFromCell(this)">
-                        ${book.grade || ''}
+                    <td class="editable-cell" data-field="grade" data-book-id="${book.id}" data-value="${esc(book.grade)}" data-edit-type="grade" ondblclick="startEditFromCell(this)">
+                        ${esc(book.grade)}
                         <span class="edit-indicator">✎</span>
                     </td>
                     <td>
@@ -1002,8 +1024,13 @@
                 </tr>
             `;
             }).join('');
+
+            // Refresh selection UI so the header checkbox and the "N selected" counter
+            // reflect the currently visible rows (some previously-checked rows may now
+            // be filtered out; they stay in the Set but aren't visible).
+            updateSelectionUI();
         }
-        
+
         // Action menu functions
         function toggleActionMenu(bookId, event) {
             event.stopPropagation();
@@ -1085,43 +1112,43 @@
                 // Create update form
                 const formHtml = `
                     <div class="book-info">
-                        <strong>${book.title}</strong><br>
-                        ${book.author} | ${book.publisher || ''} ${book.stock_number || ''}
+                        <strong>${esc(book.title)}</strong><br>
+                        ${esc(book.author)} | ${esc(book.publisher)} ${esc(book.stock_number)}
                     </div>
-                    <form class="update-form" onsubmit="saveBookUpdate(${bookId}, event)">
+                    <form class="update-form" onsubmit="saveBookUpdate(${book.id}, event)">
                         <div class="form-row">
                             <div class="form-group">
                                 <label for="updateTitle">Title</label>
-                                <input type="text" id="updateTitle" value="${book.title || ''}">
+                                <input type="text" id="updateTitle" value="${esc(book.title)}">
                             </div>
                             <div class="form-group">
                                 <label for="updateAuthor">Author</label>
-                                <input type="text" id="updateAuthor" value="${book.author || ''}">
+                                <input type="text" id="updateAuthor" value="${esc(book.author)}">
                             </div>
                         </div>
-                        
+
                         <div class="form-row">
                             <div class="form-group">
                                 <label for="updatePublisher">Publisher</label>
-                                <input type="text" id="updatePublisher" value="${book.publisher || ''}">
+                                <input type="text" id="updatePublisher" value="${esc(book.publisher)}">
                             </div>
                             <div class="form-group">
                                 <label for="updateStockNumber">Stock Number</label>
-                                <input type="text" id="updateStockNumber" value="${book.stock_number || ''}">
+                                <input type="text" id="updateStockNumber" value="${esc(book.stock_number)}">
                             </div>
                         </div>
-                        
+
                         <div class="form-row">
                             <div class="form-group">
                                 <label for="updatePrice">Cover Price</label>
-                                <input type="text" id="updatePrice" placeholder="e.g., 40c, $1.25, 2'6" value="${book.price || ''}">
+                                <input type="text" id="updatePrice" placeholder="e.g., 40c, $1.25, 2'6" value="${esc(book.price)}">
                             </div>
                             <div class="form-group">
                                 <label for="updateSeries">Series</label>
-                                <input type="text" id="updateSeries" value="${book.series || ''}">
+                                <input type="text" id="updateSeries" value="${esc(book.series)}">
                             </div>
                         </div>
-                        
+
                         <div class="form-row">
                             <div class="form-group">
                                 <label for="updateGrade">Grade</label>
@@ -1137,37 +1164,37 @@
                             </div>
                             <div class="form-group">
                                 <label for="updatePrinting">Printing</label>
-                                <input type="text" id="updatePrinting" placeholder="e.g., First US ppb printing" value="${book.printing || ''}">
+                                <input type="text" id="updatePrinting" placeholder="e.g., First US ppb printing" value="${esc(book.printing)}">
                             </div>
                         </div>
-                        
+
                         <div class="form-group">
                             <label for="updateConditionNotes">Condition Notes</label>
-                            <textarea id="updateConditionNotes" placeholder="Describe the condition of the book...">${book.condition_notes || ''}</textarea>
+                            <textarea id="updateConditionNotes" placeholder="Describe the condition of the book...">${esc(book.condition_notes)}</textarea>
                         </div>
-                        
+
                         <div class="form-row">
                             <div class="form-group">
                                 <label for="updateCoverArtist">Cover Artist</label>
-                                <input type="text" id="updateCoverArtist" value="${book.cover_artist || ''}">
+                                <input type="text" id="updateCoverArtist" value="${esc(book.cover_artist)}">
                             </div>
                             <div class="form-group">
                                 <label for="updateCoverArtUrl">Cover Art URL</label>
-                                <input type="url" id="updateCoverArtUrl" value="${book.cover_art_url || ''}">
+                                <input type="url" id="updateCoverArtUrl" value="${esc(book.cover_art_url)}">
                             </div>
                         </div>
-                        
+
                         <div class="form-row">
                             <div class="form-group">
                                 <label for="updatePublicationDate">Publication Date</label>
-                                <input type="date" id="updatePublicationDate" value="${book.publication_date || ''}">
+                                <input type="date" id="updatePublicationDate" value="${esc(book.publication_date)}">
                             </div>
                             <div class="form-group">
                                 <label for="updatePurchasePrice">Purchase Price (if known)</label>
-                                <input type="number" id="updatePurchasePrice" step="0.01" placeholder="0.00" value="${book.purchase_price || ''}">
+                                <input type="number" id="updatePurchasePrice" step="0.01" placeholder="0.00" value="${esc(book.purchase_price)}">
                             </div>
                         </div>
-                        
+
                         <div class="form-row">
                             <div class="form-group">
                                 <label for="updateOwned" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
@@ -1176,17 +1203,17 @@
                                 </label>
                             </div>
                         </div>
-                        
+
                         <div class="form-group">
                             <label for="updatePrintingNotes">Printing Notes</label>
-                            <textarea id="updatePrintingNotes" placeholder="Notes on how printing was determined...">${book.printing_notes || ''}</textarea>
+                            <textarea id="updatePrintingNotes" placeholder="Notes on how printing was determined...">${esc(book.printing_notes)}</textarea>
                         </div>
-                        
+
                         <div class="form-group">
                             <label for="updateNotes">General Notes</label>
-                            <textarea id="updateNotes" placeholder="Any additional notes...">${book.notes || ''}</textarea>
+                            <textarea id="updateNotes" placeholder="Any additional notes...">${esc(book.notes)}</textarea>
                         </div>
-                        
+
                         <div class="form-actions">
                             <button type="button" class="btn-secondary" onclick="closeUpdateModal()">Cancel</button>
                             <button type="submit" class="btn-primary">Save Changes</button>
@@ -1198,7 +1225,7 @@
                 
             } catch (error) {
                 console.error('Error loading book:', error);
-                content.innerHTML = `<div class="error">Error loading book: ${error.message}</div>`;
+                content.innerHTML = `<div class="error">Error loading book: ${esc(error.message)}</div>`;
             }
         }
         
@@ -1297,69 +1324,70 @@
                 const data = await response.json();
                 
                 if (data.error) {
-                    content.innerHTML = `<div class="error">Error: ${data.error}</div>`;
+                    content.innerHTML = `<div class="error">Error: ${esc(data.error)}</div>`;
                     return;
                 }
-                
+
                 let html = `
                     <div class="book-info">
-                        <strong>${data.book.title}</strong><br>
-                        ${data.book.author} | ${data.book.publisher || ''} ${data.book.stock_number || ''}<br>
-                        <strong>Your Copy Grade: ${data.book.grade}</strong>
+                        <strong>${esc(data.book.title)}</strong><br>
+                        ${esc(data.book.author)} | ${esc(data.book.publisher)} ${esc(data.book.stock_number)}<br>
+                        <strong>Your Copy Grade: ${esc(data.book.grade)}</strong>
                     </div>
                 `;
-                
+
                 // Show estimate update info if it was updated
                 if (data.estimate_updated && data.estimate) {
                     html += `
                         <div style="background: #d4edda; padding: 10px; border-radius: 4px; margin-bottom: 15px; color: #155724;">
                             <strong>✓ eBay Estimate Updated!</strong><br>
                             eBay Estimate: $${data.estimate.ebay_estimate ? data.estimate.ebay_estimate.toFixed(2) : 'N/A'}<br>
-                            <small>Date: ${data.estimate.date}</small>
+                            <small>Date: ${esc(data.estimate.date)}</small>
                         </div>
                     `;
                 } else if (data.estimate && data.estimate.error) {
-                    html += `<div class="error" style="margin-bottom: 15px;">${data.estimate.error}</div>`;
+                    html += `<div class="error" style="margin-bottom: 15px;">${esc(data.estimate.error)}</div>`;
                 } else if (data.count < 3) {
                     html += `<div style="background: #fff3cd; padding: 10px; border-radius: 4px; margin-bottom: 15px; color: #856404;">
                         <small>Not enough listings (${data.count}) to calculate estimate. Need at least 3.</small>
                     </div>`;
                 }
-                
+
                 html += '<div class="ebay-results">';
-                
+
                 if (data.results.length === 0) {
                     html += '<div class="loading">No listings found on eBay.</div>';
                 } else {
                     data.results.forEach(item => {
+                        const safe = safeUrl(item.url);
                         html += `
                             <div class="ebay-item">
-                                <div class="ebay-item-title">${item.title}</div>
+                                <div class="ebay-item-title">${esc(item.title)}</div>
                                 <div class="ebay-item-details">
-                                    <span><strong>Price:</strong> ${item.price}</span>
-                                    <span><strong>Shipping:</strong> ${item.shipping}</span>
-                                    <span><strong>Total:</strong> ${item.total}</span>
-                                    <span><strong>Condition:</strong> ${item.condition}</span>
+                                    <span><strong>Price:</strong> ${esc(item.price)}</span>
+                                    <span><strong>Shipping:</strong> ${esc(item.shipping)}</span>
+                                    <span><strong>Total:</strong> ${esc(item.total)}</span>
+                                    <span><strong>Condition:</strong> ${esc(item.condition)}</span>
                                 </div>
-                                ${item.url ? `<a href="${item.url}" target="_blank" class="ebay-item-link">View on eBay →</a>` : ''}
+                                ${safe ? `<a href="${safe}" target="_blank" rel="noopener noreferrer" class="ebay-item-link">View on eBay →</a>` : ''}
                             </div>
                         `;
                     });
                 }
-                
+
                 html += '</div>';
                 content.innerHTML = html;
-                
+
                 // If estimate was updated, reload the books table to show new values
                 if (data.estimate_updated) {
                     setTimeout(() => {
                         loadBooks();
                     }, 500);
                 }
-                
+
             } catch (error) {
                 console.error('Error searching eBay:', error);
-                content.innerHTML = `<div class="error">Error searching eBay: ${error.message}</div>`;
+                content.innerHTML = `<div class="error">Error searching eBay: ${esc(error.message)}</div>`;
             }
         }
         
@@ -1376,46 +1404,47 @@
                 const data = await response.json();
                 
                 if (data.error) {
-                    content.innerHTML = `<div class="error">Error: ${data.error}</div>`;
+                    content.innerHTML = `<div class="error">Error: ${esc(data.error)}</div>`;
                     return;
                 }
-                
+
                 let html = `
                     <div class="book-info">
-                        <strong>${data.book.title}</strong><br>
-                        ${data.book.author} | ${data.book.publisher || ''} ${data.book.stock_number || ''}<br>
-                        <strong>Your Copy Grade: ${data.book.grade}</strong>
-                        ${data.search_date ? `<br><small style="color: #666;">Search Date: ${data.search_date}</small>` : ''}
+                        <strong>${esc(data.book.title)}</strong><br>
+                        ${esc(data.book.author)} | ${esc(data.book.publisher)} ${esc(data.book.stock_number)}<br>
+                        <strong>Your Copy Grade: ${esc(data.book.grade)}</strong>
+                        ${data.search_date ? `<br><small style="color: #666;">Search Date: ${esc(data.search_date)}</small>` : ''}
                     </div>
                 `;
-                
+
                 html += '<div class="ebay-results">';
-                
+
                 if (data.results.length === 0) {
                     html += '<div class="loading">No saved listings found.</div>';
                 } else {
                     data.results.forEach(item => {
+                        const safe = safeUrl(item.url);
                         html += `
                             <div class="ebay-item">
-                                <div class="ebay-item-title">${item.title}</div>
+                                <div class="ebay-item-title">${esc(item.title)}</div>
                                 <div class="ebay-item-details">
-                                    <span><strong>Price:</strong> ${item.price}</span>
-                                    <span><strong>Shipping:</strong> ${item.shipping}</span>
-                                    <span><strong>Total:</strong> ${item.total}</span>
-                                    <span><strong>Condition:</strong> ${item.condition}</span>
+                                    <span><strong>Price:</strong> ${esc(item.price)}</span>
+                                    <span><strong>Shipping:</strong> ${esc(item.shipping)}</span>
+                                    <span><strong>Total:</strong> ${esc(item.total)}</span>
+                                    <span><strong>Condition:</strong> ${esc(item.condition)}</span>
                                 </div>
-                                ${item.url ? `<a href="${item.url}" target="_blank" class="ebay-item-link">View on eBay →</a>` : ''}
+                                ${safe ? `<a href="${safe}" target="_blank" rel="noopener noreferrer" class="ebay-item-link">View on eBay →</a>` : ''}
                             </div>
                         `;
                     });
                 }
-                
+
                 html += '</div>';
                 content.innerHTML = html;
-                
+
             } catch (error) {
                 console.error('Error loading saved results:', error);
-                content.innerHTML = `<div class="error">Error loading saved results: ${error.message}</div>`;
+                content.innerHTML = `<div class="error">Error loading saved results: ${esc(error.message)}</div>`;
             }
         }
         
@@ -1424,6 +1453,68 @@
             document.getElementById('ebayModal').style.display = 'none';
         }
         
+        // Selection helpers ----------------------------------------------------
+
+        function toggleRowSelection(bookId, checkbox) {
+            if (checkbox.checked) {
+                selectedBookIds.add(bookId);
+            } else {
+                selectedBookIds.delete(bookId);
+            }
+            updateSelectionUI();
+        }
+
+        function toggleSelectAllVisible(headerCheckbox) {
+            const boxes = document.querySelectorAll('input.row-select');
+            boxes.forEach(box => {
+                const id = parseInt(box.getAttribute('data-book-id'), 10);
+                if (headerCheckbox.checked) {
+                    selectedBookIds.add(id);
+                    box.checked = true;
+                } else {
+                    selectedBookIds.delete(id);
+                    box.checked = false;
+                }
+            });
+            updateSelectionUI();
+        }
+
+        function clearSelection() {
+            selectedBookIds.clear();
+            document.querySelectorAll('input.row-select').forEach(box => { box.checked = false; });
+            const header = document.getElementById('selectAllCheckbox');
+            if (header) header.checked = false;
+            updateSelectionUI();
+        }
+
+        function updateSelectionUI() {
+            const countSpan = document.getElementById('selectedCount');
+            const btn = document.getElementById('estimateSelectedBtn');
+            if (countSpan) countSpan.textContent = selectedBookIds.size;
+            if (btn) btn.disabled = selectedBookIds.size === 0;
+
+            // Reflect header checkbox state based on visible rows
+            const header = document.getElementById('selectAllCheckbox');
+            const boxes = document.querySelectorAll('input.row-select');
+            if (header && boxes.length > 0) {
+                const checkedCount = Array.from(boxes).filter(b => b.checked).length;
+                header.checked = checkedCount === boxes.length;
+                header.indeterminate = checkedCount > 0 && checkedCount < boxes.length;
+            } else if (header) {
+                header.checked = false;
+                header.indeterminate = false;
+            }
+        }
+
+        function runBulkEstimatesForSelected() {
+            if (selectedBookIds.size === 0) return;
+            const ids = Array.from(selectedBookIds);
+            if (!confirm(`Run eBay estimates for ${ids.length} selected book${ids.length === 1 ? '' : 's'}? This may take a while.`)) {
+                return;
+            }
+            _startBulkEstimate({ book_ids: ids }, event.target, `${ids.length} selected`);
+        }
+
         // Run bulk eBay estimates
         function runBulkEstimates(filterType) {
             const filterNames = {
@@ -1431,13 +1522,17 @@
                 'owned': 'Owned Books',
                 'not_owned': 'Not Owned Books'
             };
-            
+
             if (!confirm(`This will run eBay estimates for ${filterNames[filterType]}. This may take a while. Continue?`)) {
                 return;
             }
-            
+
+            _startBulkEstimate({ filter: filterType }, event.target, filterNames[filterType]);
+        }
+
+        function _startBulkEstimate(payload, buttonEl, label) {
             // Show loading indicator and progress
-            const button = event.target;
+            const button = buttonEl;
             const originalText = button.textContent;
             button.disabled = true;
             
@@ -1465,7 +1560,7 @@
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({ filter: filterType })
+                body: JSON.stringify(payload)
             }).then(response => {
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
@@ -1511,9 +1606,11 @@
                                         // Re-enable button
                                         button.disabled = false;
                                         button.textContent = originalText;
-                                        
-                                        // Refresh the page to show all updated data
-                                        window.location.reload();
+
+                                        // Re-fetch the books data so the new estimates render,
+                                        // but keep whatever author/type/owned/search filters the
+                                        // user had applied — a full page reload would drop them.
+                                        loadBooks();
                                     } else if (data.type === 'error') {
                                         alert('Error: ' + data.error);
                                         closeProgressModal();
@@ -1665,6 +1762,7 @@
         // Initialize
         loadAuthors();
         loadBooks();
+        updateSelectionUI();
     </script>
 </body>
 </html>

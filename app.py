@@ -18,6 +18,10 @@ except ImportError:
     OPENAI_API_KEY = None
 
 app = Flask(__name__)
+# Pick up template edits on the next request without needing a server restart.
+# (Flask only auto-reloads templates when debug=True; we run debug=False since
+# Werkzeug's debugger is an RCE vector, so opt in to just the template reload.)
+app.config['TEMPLATES_AUTO_RELOAD'] = True
 
 
 def _make_ebay_api():
@@ -39,8 +43,8 @@ def _get_publication_year(book):
     return book.publication_date.year
 
 
-def _search_and_filter(api, book, limit=50):
-    """Search eBay and filter results for a specific book edition."""
+def _fetch_search_results(api, book, limit=50):
+    """Run one eBay search for a book. Returns (raw_results, publication_year)."""
     results = api.search_books(
         title=book.title,
         author=None,
@@ -48,20 +52,24 @@ def _search_and_filter(api, book, limit=50):
         stock_number=None,
         limit=limit
     )
-    publication_year = _get_publication_year(book)
+    return results, _get_publication_year(book)
+
+
+def _filter_for_display(api, book, raw_results, publication_year):
+    """Apply ChatGPT / stock-number filtering to shape results for the UI modal."""
     if api.openai_client and (book.publisher or book.stock_number):
-        buy_it_now = [r for r in results if r.get("is_buy_it_now", False)]
+        buy_it_now = [r for r in raw_results if r.get("is_buy_it_now", False)]
         if buy_it_now:
             filtered = api._filter_listings_with_chatgpt(
                 buy_it_now, book.title, book.author, book.publisher,
                 book.stock_number, target_publication_year=publication_year,
                 require_condition_info=False
             )
-            other = [r for r in results if not r.get("is_buy_it_now", False)]
-            results = filtered + other
+            other = [r for r in raw_results if not r.get("is_buy_it_now", False)]
+            return filtered + other
     elif book.stock_number:
-        results = api.prioritize_results(results, book.author, book.stock_number)
-    return results, publication_year
+        return api.prioritize_results(raw_results, book.author, book.stock_number)
+    return raw_results
 
 
 def _format_results(results, include_format=True):
@@ -210,10 +218,11 @@ def api_ebay_search(book_id):
             return jsonify({'error': 'Book not found'}), 404
 
         api = _make_ebay_api()
-        results, publication_year = _search_and_filter(api, book, limit=50)
+        raw_results, publication_year = _fetch_search_results(api, book, limit=50)
+        display_results = _filter_for_display(api, book, raw_results, publication_year)
 
         # Fetch shipping costs from item details if missing (top 10 only)
-        for i, r in enumerate(results[:10]):
+        for r in display_results[:10]:
             if (r.get("shipping_cost") == 0.0 or r.get("shipping_cost") is None) and r.get("item_id"):
                 try:
                     details = api.get_item_details(r.get("item_id"))
@@ -223,8 +232,8 @@ def api_ebay_search(book_id):
                 except Exception:
                     # If fetching fails, keep the existing value
                     pass
-        
-        formatted_results = _format_results(results)
+
+        formatted_results = _format_results(display_results)
 
         # Save search results to database
         update_book(
@@ -232,12 +241,12 @@ def api_ebay_search(book_id):
             ebay_search_results=json.dumps(formatted_results),
             ebay_search_date=date.today()
         )
-        
+
         # Try to calculate and update eBay estimate if we have enough data
         estimate_updated = False
         estimate_info = None
-        
-        if len(results) >= 3:  # Minimum results needed for estimate
+
+        if len(display_results) >= 3:  # Minimum results needed for estimate
             try:
                 price_result = api.get_price_estimate(
                     title=book.title,
@@ -246,7 +255,8 @@ def api_ebay_search(book_id):
                     stock_number=book.stock_number,
                     grade=book.grade,
                     publication_year=publication_year,
-                    min_results=3
+                    min_results=3,
+                    search_results=raw_results,
                 )
                 
                 if price_result:
@@ -300,7 +310,7 @@ def api_ebay_search(book_id):
         else:
             # Not enough listings, but record that a search was performed
             # Clear the estimate since we can't calculate one
-            error_msg = "No results" if len(results) == 0 else "No estimate"
+            error_msg = "No results" if len(display_results) == 0 else "No estimate"
             update_book(
                 book_id,
                 ebay_estimate=None,
@@ -311,7 +321,7 @@ def api_ebay_search(book_id):
             estimate_updated = True  # Trigger UI reload to show cleared estimate
             estimate_info = {
                 'error': error_msg,
-                'error_type': 'no_results' if len(results) == 0 else 'insufficient_results'
+                'error_type': 'no_results' if len(display_results) == 0 else 'insufficient_results'
             }
         
         return jsonify({
@@ -339,10 +349,14 @@ def api_ebay_estimate_bulk():
         try:
             data = request.get_json()
             filter_type = data.get('filter', 'all')  # 'all', 'owned', 'not_owned'
-            
-            # Get books based on filter
+            book_ids = data.get('book_ids')  # optional explicit selection; overrides filter_type
+
+            # Get books based on explicit selection or filter
             all_books = [b for b in list_all_books() if b is not None]
-            if filter_type == 'owned':
+            if book_ids:
+                id_set = set(book_ids)
+                books = [b for b in all_books if b.id in id_set]
+            elif filter_type == 'owned':
                 books = [b for b in all_books if b.owned]
             elif filter_type == 'not_owned':
                 books = [b for b in all_books if not b.owned]
@@ -371,21 +385,22 @@ def api_ebay_estimate_bulk():
                     # Send progress update
                     yield f"data: {json.dumps({'type': 'progress', 'current': idx, 'total': total, 'message': f'Processing {idx}/{total}: {book.title}'})}\n\n"
                     
-                    search_results, publication_year = _search_and_filter(api, book, limit=50)
-                    formatted_results = _format_results(search_results)
-                    
+                    raw_results, publication_year = _fetch_search_results(api, book, limit=50)
+                    display_results = _filter_for_display(api, book, raw_results, publication_year)
+                    formatted_results = _format_results(display_results)
+
                     # Save search results to database (even if not enough for estimate)
                     update_book(
                         book.id,
                         ebay_search_results=json.dumps(formatted_results),
                         ebay_search_date=date.today()
                     )
-                    
-                    # Determine error type based on OUR search results (not get_price_estimate's internal search)
+
+                    # Determine error type based on OUR filtered display results (not get_price_estimate's internal filter)
                     # Filter to Buy It Now listings for counting
-                    buy_it_now_count = len([r for r in search_results if r.get("is_buy_it_now", False) and r.get("price") is not None])
-                    
-                    # Get price estimate
+                    buy_it_now_count = len([r for r in display_results if r.get("is_buy_it_now", False) and r.get("price") is not None])
+
+                    # Get price estimate — pass raw_results to skip the second eBay round-trip
                     price_result = api.get_price_estimate(
                         title=book.title,
                         author=book.author,
@@ -393,7 +408,8 @@ def api_ebay_estimate_bulk():
                         stock_number=book.stock_number,
                         grade=book.grade,
                         publication_year=publication_year,
-                        min_results=3
+                        min_results=3,
+                        search_results=raw_results,
                     )
                     
                     results['processed'] += 1
@@ -401,8 +417,8 @@ def api_ebay_estimate_bulk():
                     if price_result:
                         # Check if result is an error dict
                         if isinstance(price_result, dict) and "error" in price_result:
-                            # Use OUR search results to determine error type, not get_price_estimate's
-                            if len(search_results) == 0:
+                            # Use OUR filtered display results to determine error type, not get_price_estimate's
+                            if len(display_results) == 0:
                                 error_msg = "No results"
                                 error_type = "no_results"
                             elif buy_it_now_count < 3:
@@ -455,8 +471,8 @@ def api_ebay_estimate_bulk():
                             })
                     else:
                         # No price_result returned (shouldn't happen, but handle it)
-                        # Determine error type based on OUR search results
-                        if len(search_results) == 0:
+                        # Determine error type based on OUR filtered display results
+                        if len(display_results) == 0:
                             error_msg = "No results"
                             error_type = "no_results"
                         elif buy_it_now_count < 3:
@@ -541,5 +557,5 @@ def api_ebay_search_results(book_id):
 
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(debug=False, port=5000)
 
