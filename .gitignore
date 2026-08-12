@@ -23,10 +23,12 @@ wheels/
 .installed.cfg
 *.egg
 
-# Database
+# Database — ignore stray/backup SQLite files, but keep the main catalog
+# tracked so the data is backed up to GitHub along with the code.
 *.db
 *.sqlite
 *.sqlite3
+!book_catalog.db
 
 # IDE
 .vscode/
