@@ -4,6 +4,7 @@ import re
 from difflib import SequenceMatcher
 from typing import Callable, Dict, List, Optional, Tuple
 
+from ..grading import GRADING_RUBRIC, DESCRIPTION_HINTS
 from .parse import normalize_condition
 
 
@@ -206,24 +207,14 @@ IMPORTANT: Only include listings that have sufficient condition information. A l
 
         grading_instructions = ""
         if require_condition_info:
-            grading_instructions = """
+            grading_instructions = f"""
 GRADING INSTRUCTIONS:
 For each listing that matches the edition, you must also determine its grade from the description if the Condition field is blank or "Unknown". Use these paperback grading standards:
 
-- **Fine (F)**: Appears unread, no defects, no creases, clean pages, tight binding, minimal wear
-- **Near Fine (NF)**: Very minor defects, slight edge wear, no reading crease, clean pages
-- **Very Good (VG)**: Shows careful use, may have reading crease, slight creases/scuffs, minor browning, all pages present
-- **Good (G)**: More wear, multiple creases, may have markings, some wear to edges/corners, binding intact
-- **Fair**: Significant wear, may have tears, heavy creasing, noticeable defects, but complete
-- **Poor**: Heavy wear, missing pages, significant damage
+{GRADING_RUBRIC}
 
 Grade conservatively - when in doubt, grade lower. Consider specific details like:
-- "no creases" or "no reading crease" suggests Fine or Near Fine
-- "some creasing" or "minor creasing" suggests Very Good
-- "reading crease" or "spine crease" suggests Very Good to Good
-- "wear on edges" or "corner wear" suggests Very Good to Good depending on severity
-- "marks" or "writing" suggests Good or lower
-- "tears" or "damage" suggests Fair or lower"""
+{DESCRIPTION_HINTS}"""
 
         prompt = f"""You are helping identify which eBay book listings match a specific edition and determine their condition grades.{condition_requirement}{grading_instructions}
 

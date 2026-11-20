@@ -1,85 +1,40 @@
-"""Book management utilities for adding, querying, and updating books."""
+"""Book management utilities for adding, querying, and updating books.
 
-from .models import Book, get_db_session
-from datetime import datetime
+Reads return `BookRow` dataclass instances (hydrated inside the session),
+never detached ORM objects. That way callers can safely hold onto the
+result after the session closes.
+"""
+
+from sqlalchemy import select
+
+from .models import BOOK_COLUMN_NAMES, Book, BookRow, get_db_session, hydrate_row
 
 
-def add_book(
-    author,
-    title,
-    series=None,
-    publisher=None,
-    stock_number=None,
-    isbn=None,
-    price=None,
-    publisher_address=None,
-    number_line=None,
-    copyright_date=None,
-    copyright_text=None,
-    cover_artist=None,
-    cover_art_url=None,
-    logo_description=None,
-    cover_description=None,
-    printing=None,
-    printing_number=None,
-    printing_notes=None,
-    publication_date=None,
-    grade=None,
-    condition_notes=None,
-    owned=True,
-    notes=None,
-    spine_info=None,
-    back_cover_info=None,
-    ebay_estimate=None,
-    purchase_price=None,
-    price_date=None,
-    price_source=None,
-    price_notes=None,
-    medium=None,
-    db_path='book_catalog.db'
-):
-    """Add a new book to the catalog."""
+# Fields update_book / add_book accept — everything on Book except the primary
+# key. Derived from Book.__table__.columns so a new column flows through
+# automatically; the API allowlist in app.py imports this list.
+MUTABLE_COLUMN_NAMES = tuple(name for name in BOOK_COLUMN_NAMES if name != "id")
+
+
+def add_book(*, db_path='book_catalog.db', **fields) -> BookRow:
+    """Add a new book. Keyword-only; any subset of MUTABLE_COLUMN_NAMES."""
+    author = fields.get('author')
+    title = fields.get('title')
+    if not author or not title:
+        raise ValueError("author and title are required")
+
+    unknown = set(fields) - set(MUTABLE_COLUMN_NAMES)
+    if unknown:
+        raise ValueError(f"Unknown book fields: {sorted(unknown)}")
+
     session = get_db_session(db_path)
-    
     try:
-        book = Book(
-            author=author,
-            title=title,
-            series=series,
-            publisher=publisher,
-            stock_number=stock_number,
-            isbn=isbn,
-            price=price,
-            publisher_address=publisher_address,
-            number_line=number_line,
-            copyright_date=copyright_date,
-            copyright_text=copyright_text,
-            cover_artist=cover_artist,
-            cover_art_url=cover_art_url,
-            logo_description=logo_description,
-            cover_description=cover_description,
-            printing=printing,
-            printing_number=printing_number,
-            printing_notes=printing_notes,
-            publication_date=publication_date,
-            grade=grade,
-            condition_notes=condition_notes,
-            owned=owned,
-            notes=notes,
-            spine_info=spine_info,
-            back_cover_info=back_cover_info,
-            ebay_estimate=ebay_estimate,
-            purchase_price=purchase_price,
-            price_date=price_date,
-            price_source=price_source,
-            price_notes=price_notes,
-            medium=medium
-        )
-        
+        book = Book(**fields)
         session.add(book)
         session.commit()
-        print(f"Added book: {author} - {title} (ID: {book.id})")
-        return book
+        row = hydrate_row(book)
+        print(f"Added book: {author} - {title} (ID: {row.id})")
+        return row
     except Exception as e:
         session.rollback()
         print(f"Error adding book: {e}")
@@ -89,10 +44,11 @@ def add_book(
 
 
 def get_book_by_id(book_id, db_path='book_catalog.db'):
-    """Get a book by its ID."""
+    """Get a book by its ID as a BookRow, or None if not found."""
     session = get_db_session(db_path)
     try:
-        return session.query(Book).filter(Book.id == book_id).first()
+        book = session.scalars(select(Book).where(Book.id == book_id)).first()
+        return hydrate_row(book) if book else None
     finally:
         session.close()
 
@@ -105,54 +61,54 @@ def search_books(
     owned=None,
     db_path='book_catalog.db'
 ):
-    """Search for books by various criteria."""
+    """Search for books by various criteria; returns a list of BookRow."""
     session = get_db_session(db_path)
     try:
-        query = session.query(Book)
-        
+        stmt = select(Book)
         if author:
-            query = query.filter(Book.author.ilike(f'%{author}%'))
+            stmt = stmt.where(Book.author.ilike(f'%{author}%'))
         if title:
-            query = query.filter(Book.title.ilike(f'%{title}%'))
+            stmt = stmt.where(Book.title.ilike(f'%{title}%'))
         if publisher:
-            query = query.filter(Book.publisher.ilike(f'%{publisher}%'))
+            stmt = stmt.where(Book.publisher.ilike(f'%{publisher}%'))
         if stock_number:
-            query = query.filter(Book.stock_number.ilike(f'%{stock_number}%'))
+            stmt = stmt.where(Book.stock_number.ilike(f'%{stock_number}%'))
         if owned is not None:
-            query = query.filter(Book.owned == owned)
-        
-        return query.all()
+            stmt = stmt.where(Book.owned == owned)
+        return [hydrate_row(b) for b in session.scalars(stmt).all()]
     finally:
         session.close()
 
 
 def list_all_books(db_path='book_catalog.db'):
-    """List all books in the catalog."""
+    """List all books; returns a list of BookRow sorted by author/series/title."""
     session = get_db_session(db_path)
     try:
-        # Sort by author, then series, then title
-        # Note: Series sorting by number is handled in frontend for better parsing
-        return session.query(Book).order_by(Book.author, Book.series, Book.title).all()
+        # Series sorting by number is handled in the frontend for better parsing.
+        stmt = select(Book).order_by(Book.author, Book.series, Book.title)
+        return [hydrate_row(b) for b in session.scalars(stmt).all()]
     finally:
         session.close()
 
 
-def update_book(book_id, db_path='book_catalog.db', **kwargs):
-    """Update a book's information."""
+def update_book(book_id, db_path='book_catalog.db', **kwargs) -> bool:
+    """Update a book's fields. Returns True on success, False if not found."""
+    unknown = set(kwargs) - set(MUTABLE_COLUMN_NAMES)
+    if unknown:
+        raise ValueError(f"Unknown book fields: {sorted(unknown)}")
+
     session = get_db_session(db_path)
     try:
-        book = session.query(Book).filter(Book.id == book_id).first()
+        book = session.scalars(select(Book).where(Book.id == book_id)).first()
         if not book:
             print(f"Book with ID {book_id} not found")
-            return None
-        
+            return False
+
         for key, value in kwargs.items():
-            if hasattr(book, key):
-                setattr(book, key, value)
-        
+            setattr(book, key, value)
+
         session.commit()
-        print(f"Updated book ID {book_id}")
-        return book
+        return True
     except Exception as e:
         session.rollback()
         print(f"Error updating book: {e}")
@@ -161,18 +117,17 @@ def update_book(book_id, db_path='book_catalog.db', **kwargs):
         session.close()
 
 
-def delete_book(book_id, db_path='book_catalog.db'):
-    """Delete a book from the catalog."""
+def delete_book(book_id, db_path='book_catalog.db') -> bool:
+    """Delete a book by ID. Returns True on success, False if not found."""
     session = get_db_session(db_path)
     try:
-        book = session.query(Book).filter(Book.id == book_id).first()
+        book = session.scalars(select(Book).where(Book.id == book_id)).first()
         if not book:
             print(f"Book with ID {book_id} not found")
             return False
-        
+
         session.delete(book)
         session.commit()
-        print(f"Deleted book ID {book_id}")
         return True
     except Exception as e:
         session.rollback()
@@ -180,4 +135,3 @@ def delete_book(book_id, db_path='book_catalog.db'):
         raise
     finally:
         session.close()
-

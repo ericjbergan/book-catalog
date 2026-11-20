@@ -3,19 +3,28 @@ Simple web UI for book catalog with filtering and eBay search.
 """
 
 import json
+import os
 import re
 from datetime import date
 
+from dotenv import load_dotenv
 from flask import Flask, render_template, jsonify, request, Response, stream_with_context
-from book_catalog.book_manager import list_all_books, get_book_by_id, update_book
-from book_catalog.ebay_api import eBayAPI
-from ebay_credentials import EBAY_PRODUCTION_APP_ID, EBAY_PRODUCTION_CERT_ID, EBAY_PRODUCTION_DEV_ID
 
-# Try to import OpenAI credentials (optional)
-try:
-    from openai_credentials import OPENAI_API_KEY
-except ImportError:
-    OPENAI_API_KEY = None
+# Load .env before touching credentials so os.getenv sees the values.
+load_dotenv()
+
+from book_catalog.book_manager import (
+    MUTABLE_COLUMN_NAMES,
+    get_book_by_id,
+    list_all_books,
+    update_book,
+)
+from book_catalog.ebay_api import eBayAPI
+
+EBAY_PRODUCTION_APP_ID = os.getenv("EBAY_PRODUCTION_APP_ID")
+EBAY_PRODUCTION_CERT_ID = os.getenv("EBAY_PRODUCTION_CERT_ID")
+EBAY_PRODUCTION_DEV_ID = os.getenv("EBAY_PRODUCTION_DEV_ID")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")  # optional
 
 app = Flask(__name__)
 # Pick up template edits on the next request without needing a server restart.
@@ -100,6 +109,11 @@ def index():
     return render_template('index.html')
 
 
+@app.route('/favicon.ico')
+def favicon():
+    return ('', 204)
+
+
 @app.route('/api/books')
 def api_books():
     """API endpoint to get all books with optional filters."""
@@ -178,17 +192,10 @@ def api_update_book(book_id):
         # Get update data from request
         data = request.get_json()
         
-        # Build update dictionary with only provided fields
+        # Allowed field list is derived from the model — adding a column to
+        # Book automatically permits it here without editing this route.
         update_fields = {}
-        allowed_fields = [
-            'grade', 'condition_notes', 'purchase_price', 'notes', 
-            'ebay_estimate', 'price', 'printing', 
-            'printing_notes', 'cover_artist', 'cover_art_url', 
-            'publication_date', 'series', 'stock_number', 'publisher',
-            'title', 'author', 'isbn', 'publisher_address', 'number_line', 'owned', 'medium'
-        ]
-        
-        for field in allowed_fields:
+        for field in MUTABLE_COLUMN_NAMES:
             if field in data:
                 # Handle empty strings for optional fields
                 if data[field] == '':
@@ -330,7 +337,8 @@ def api_ebay_search(book_id):
                 'author': book.author,
                 'publisher': book.publisher,
                 'stock_number': book.stock_number,
-                'grade': book.grade or 'Not graded'
+                'grade': book.grade or 'Not graded',
+                'owned': bool(book.owned)
             },
             'results': formatted_results,
             'count': len(formatted_results),
@@ -545,7 +553,8 @@ def api_ebay_search_results(book_id):
                 'author': book.author,
                 'publisher': book.publisher,
                 'stock_number': book.stock_number,
-                'grade': book.grade or 'Not graded'
+                'grade': book.grade or 'Not graded',
+                'owned': bool(book.owned)
             },
             'results': results,
             'count': len(results),
@@ -557,5 +566,7 @@ def api_ebay_search_results(book_id):
 
 
 if __name__ == '__main__':
-    app.run(debug=False, port=5000)
+    # Auto-restart on Python file changes so a page refresh picks them up.
+    # The reloader is separate from debug mode, which stays off (its console is an RCE vector).
+    app.run(debug=False, use_reloader=True, port=5000)
 
